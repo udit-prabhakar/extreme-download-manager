@@ -5,8 +5,8 @@ Verified locally on the development Mac on 2026-11-11.
 ## Browser handoff milestone
 
 - Five Node.js extension tests passed for URL filtering, exclusion host boundaries, narrow permissions, manifest identity, message contents, and context-menu actions.
-- The real Swift native host passed framed stdio tests for Chromium/Firefox caller arguments, extension allowlists, private file permissions, unsupported URL schemes, embedded credentials, protocol versions, malformed/truncated input, and oversized frames. Evidence: `.build/browser-host-rmipepph/`.
-- The expanded transfer suite passed with isolated Chrome/Edge/Firefox registration/removal, review-before-download, paused preferences, request replay protection, dismissal, and a checksum-correct 24 MiB download. Evidence: `.build/integration-8iesg2yr/`.
+- The real Swift native host passed framed stdio tests for Chromium/Firefox caller arguments, extension allowlists, private file permissions, unsupported URL schemes, embedded credentials, protocol versions, malformed/truncated input, oversized frames, and near-limit URLs remaining readable by the inbox. Final evidence: `.build/browser-host-h8aqxayc/`.
+- The expanded transfer suite passed with isolated Chrome/Edge/Firefox registration/removal, review-before-download, paused preferences, request deduplication including multiple requests reusing one transfer and later retries after completion, dismissal, and a checksum-correct 24 MiB download. Final evidence: `.build/integration-wnent5ga/`.
 - The release app built and passed plist and ad-hoc signature validation. Packaged extensions and the executable native host wrapper are included in the bundle.
 - A real packaged host message woke the app in `.build/browser-ui-profile/`. Native UI checks verified the pending-link badge, review form, setup instructions, registration/removal under `.build/browser-ui-library/`, acceptance, and empty inbox afterward. `Browser UI verified.bin` completed with the expected checksum and its browser request ID persisted in SQLite. Quitting removed the engine's runtime configuration.
 

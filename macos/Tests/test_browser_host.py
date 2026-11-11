@@ -35,6 +35,9 @@ assert record['url']==request['url'] and record['id']==reply['requestID']
 assert files[0].stat().st_mode & 0o777 == 0o600
 assert (profile/'BrowserInbox').stat().st_mode & 0o777 == 0o700
 invoke(request, arguments=['/fixture/manifest.json','browser@extreme.downloadmanager.app'])
+long_reply = invoke({**request, 'url': 'https://example.invalid/' + '/' * 8000})
+long_file = profile/'BrowserInbox'/(long_reply['requestID']+'.json')
+assert long_file.stat().st_size <= 16*1024, 'Accepted metadata cannot exceed the inbox reader limit'
 for url in ['file:///tmp/hello', 'javascript:alert(1)', 'https://user:password@example.invalid/file', 'magnet:?dn=hello', 'https://example.invalid/a\nheader']:
     invoke({**request,'url':url}, ok=False)
 invoke(request, arguments=['chrome-extension://untrusted/'], ok=False)
@@ -42,6 +45,6 @@ invoke({'version':2,'action':'handoff','url':request['url']}, ok=False)
 invoke(raw=struct.pack('<I',20000), ok=False)
 invoke(raw=struct.pack('<I',10)+b'{}', ok=False)
 invoke(raw=struct.pack('<I',3)+b'bad', ok=False)
-assert len(list((profile/'BrowserInbox').glob('*.json')))==2, 'Rejected input created a capture'
+assert len(list((profile/'BrowserInbox').glob('*.json')))==3, 'Rejected input created a capture'
 print('PASS: native host framing, extension allowlist, permissions, URL validation, and Chrome/Firefox arguments')
 print(f'Evidence: {profile}')

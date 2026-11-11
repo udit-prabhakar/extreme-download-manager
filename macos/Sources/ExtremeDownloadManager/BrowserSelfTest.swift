@@ -36,6 +36,11 @@ enum BrowserSelfTest {
         try check(accepted && store.browserCaptures.isEmpty, "Reviewed browser link was not acknowledged")
         guard let item = store.items.first(where: { $0.browserRequestID == capture.id }) else { throw EngineError(message: "Browser request identity was not saved") }
         try check(item.status == "paused" && item.completed == 0, "Browser handoff ignored the automatic-start preference")
+        _ = try BrowserBridge.receive(packet, profile: store.dataDirectory, browser: "Test browser")
+        await store.refreshBrowserInbox()
+        guard let second = store.browserCaptures.first else { throw EngineError(message: "Second browser link was not queued") }
+        let reused = await store.acceptBrowserCapture(second, directory: store.preferences.directory, filename: "unused.bin")
+        try check(reused && store.items.count == before + 1 && store.items.first(where: { $0.id == item.id })?.browserRequestIDs?.contains(capture.id) == true, "Reusing a transfer lost its earlier request identity")
         // Simulate an acknowledgement interrupted by process exit; accepting again must not add a second job.
         let file = BrowserBridge.inbox(store.dataDirectory).appendingPathComponent(capture.id.uuidString + ".json")
         try JSONEncoder().encode(capture).write(to: file)
@@ -54,6 +59,10 @@ enum BrowserSelfTest {
         let expected = try await URLSession.shared.data(from: URL(string: base + "/expected-sha256")!).0
         let actual = try TransferUtilities.sha256(URL(fileURLWithPath: store.preferences.directory).appendingPathComponent("browser-reviewed.bin"))
         try check(actual == String(decoding: expected, as: UTF8.self), "Browser transfer checksum mismatch")
+        try JSONEncoder().encode(capture).write(to: file)
+        await store.refreshBrowserInbox()
+        let completedReplay = await store.acceptBrowserCapture(capture, directory: store.preferences.directory, filename: "unused-completed.bin")
+        try check(completedReplay && store.items.count == count, "An earlier browser request replayed after completion created another job")
         _ = try BrowserBridge.receive(packet, profile: store.dataDirectory, browser: "Test browser")
         await store.refreshBrowserInbox()
         if let pending = store.browserCaptures.first { await store.dismissBrowserCapture(pending) }

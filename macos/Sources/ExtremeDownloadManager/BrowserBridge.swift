@@ -45,7 +45,9 @@ enum BrowserBridge {
         let title = String(String.UnicodeScalarView(cleanTitle)).prefix(200)
         let capture = BrowserCapture(version: 1, id: UUID(), url: url, title: String(title), browser: browser, created: Date())
         let file = folder.appendingPathComponent(capture.id.uuidString + ".json")
-        let data = try JSONEncoder().encode(capture)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = try encoder.encode(capture)
+        guard data.count <= maximumMessage else { throw EngineError(message: "The browser link metadata is too large.") }
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return ["ok": true, "version": 1, "queued": true, "requestID": capture.id.uuidString, "reviewRequired": true]

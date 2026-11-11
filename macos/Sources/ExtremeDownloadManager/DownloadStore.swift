@@ -19,6 +19,7 @@ final class DownloadStore: ObservableObject {
     @Published var browserCaptures: [BrowserCapture] = []
     @Published var browserInboxError: String?
     private var browserTask: Task<Void, Never>?
+    private var acceptingBrowserLink = false
     @Published var speedHistory: [Double] = Array(repeating: 0, count: 60)
     @Published var totalSpeed: Int64 = 0
     @Published var uploadSpeed: Int64 = 0
@@ -391,15 +392,23 @@ extension DownloadStore {
 
     func acceptBrowserCapture(_ capture: BrowserCapture, directory: String, filename: String) async -> Bool {
         guard browserCaptures.contains(where: { $0.id == capture.id }) else { return false }
-        if !items.contains(where: { $0.browserRequestID == capture.id }) {
+        guard !acceptingBrowserLink else { errorMessage = "Another browser link is being added. Try again once it finishes."; return false }
+        acceptingBrowserLink = true
+        defer { acceptingBrowserLink = false }
+        if !items.contains(where: { $0.browserRequestID == capture.id || ($0.browserRequestIDs ?? []).contains(capture.id) }) {
             guard await addURLs(capture.url, directory: directory, filename: filename) else { return false }
-            if let index = items.firstIndex(where: { $0.id == selection }) { items[index].browserRequestID = capture.id }
-            persist(); await flushPersistence()
-            do {
-                guard let database else { throw EngineError(message: "Download history is unavailable. The browser link was kept for retry.") }
-                try await database.save(items, preferences: preferences)
-            } catch { errorMessage = error.localizedDescription; return false }
+            if let index = items.firstIndex(where: { $0.id == selection }) {
+                var ids = items[index].browserRequestIDs ?? [items[index].browserRequestID].compactMap { $0 }
+                if !ids.contains(capture.id) { ids.append(capture.id) }
+                items[index].browserRequestIDs = ids; items[index].browserRequestID = capture.id
+            }
+            persist()
         }
+        await flushPersistence()
+        do {
+            guard let database else { throw EngineError(message: "Download history is unavailable. The browser link was kept for retry.") }
+            try await database.save(items, preferences: preferences)
+        } catch { errorMessage = error.localizedDescription; return false }
         await dismissBrowserCapture(capture)
         return !browserCaptures.contains(where: { $0.id == capture.id })
     }
