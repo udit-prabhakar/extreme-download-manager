@@ -1,0 +1,59 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: macOS build and integration tests
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the transfer engine
+        run: |
+          if ! command -v aria2c >/dev/null 2>&1; then
+            brew install aria2
+          fi
+          aria2c --version
+          swift --version
+          python3 --version
+      - name: Check repository hygiene
+        run: |
+          git diff --check
+          python3 scripts/check_repository.py
+      - name: Run local transfer integration tests
+        run: bash macos/scripts/test.sh
+      - name: Check torrent integrity behavior
+        working-directory: macos
+        run: python3 Tests/torrent_hello_experiment.py
+      - name: Build release app
+        run: bash macos/scripts/build.sh release
+      - name: Verify and archive app
+        run: |
+          codesign --verify --deep --strict --verbose=2 "macos/build/Extreme Download Manager.app"
+          plutil -lint "macos/build/Extreme Download Manager.app/Contents/Info.plist"
+          ditto -c -k --keepParent "macos/build/Extreme Download Manager.app" "macos/build/Extreme-Download-Manager-macos.zip"
+      - name: Upload development build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Extreme-Download-Manager-macos-${{ github.sha }}
+          path: macos/build/Extreme-Download-Manager-macos.zip
+          if-no-files-found: error
+          retention-days: 14

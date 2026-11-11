@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible application problem.
+body:
+  - type: markdown
+    attributes:
+      value: Do not post tokens, private download links, personal files, or sensitive logs. Use SECURITY.md for security issues.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS and aria2 versions
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Prefer a public non-sensitive URL or a generated local fixture.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

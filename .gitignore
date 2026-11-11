@@ -1,0 +1,36 @@
+# Generated builds, compiler caches, and local application data
+**/.build/
+**/.build-*/
+**/build/
+**/.edm-data/
+**/__pycache__/
+*.py[cod]
+.DS_Store
+
+# Local reverse-engineering material is not part of the application source.
+macos/analysis/
+
+# Credentials, signing material, and local overrides
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.p8
+*.mobileprovision
+*.keystore
+
+# Downloaded/generated transfer data and distribution archives
+*.aria2
+*.torrent
+*.dmg
+*.pkg
+*.zip
+*.log
+
+# Local editor state
+.idea/
+.vscode/
+*.xcuserstate
+xcuserdata/
