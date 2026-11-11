@@ -212,7 +212,9 @@ struct PieceMap: View {
                 let start = cell * total / cells, end = (cell + 1) * total / cells
                 let present = bits[start..<end].filter { $0 }.count
                 let proportion = Double(present) / Double(max(1, end - start))
-                let rect = CGRect(x: Double(cell % columns) * size.width / 32, y: Double(cell / columns) * size.height / Double(rows), width: size.width / 32 - 2, height: size.height / Double(rows) - 2)
+                let cellWidth = size.width / CGFloat(columns)
+                let cellHeight = size.height / CGFloat(rows)
+                let rect = CGRect(x: CGFloat(cell % columns) * cellWidth, y: CGFloat(cell / columns) * cellHeight, width: cellWidth - 2, height: cellHeight - 2)
                 context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(proportion > 0 ? .teal.opacity(0.2 + 0.8 * proportion) : .secondary.opacity(0.12)))
             }
         }.accessibilityLabel("Verified torrent piece availability")
