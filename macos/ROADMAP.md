@@ -8,6 +8,10 @@ Implemented: global/per-torrent upload caps, uploaded totals, configurable seedi
 
 These are initial implementations, not closure of every priority row below. Full per-file priorities, broader authentication/recovery, browser capture, engine bundling/notarization, background time windows, media processing, and remote automation remain outstanding. Scheduling requires the app to stay open; queue labels do not yet define independent queue policies. See current usage and validation documents for exact behavior and test coverage.
 
+## Implementation status: explicit browser handoff milestone
+
+Added development Chrome/Edge/Firefox extensions with a context-menu link action and popup, site exclusions, allowlisted native messaging, per-user bridge registration/removal, a persistent review inbox, and destination choice before adding a transfer. The extension does not read cookies or intercept browser downloads. Automatic capture, authenticated request context, Safari support, browser store publication, and permanent Firefox installation remain open. See [browser setup and privacy](../docs/BROWSER_INTEGRATION.md).
+
 ## Product direction
 
 Build a dependable native macOS download manager with convenient browser capture, recoverable transfers, transparent torrent controls, and a simple default interface. Offer advanced controls in inspectors and preferences. Evaluate success through completed, correct downloads and low user effort; parallel connections cannot exceed server, disk, or network limits.

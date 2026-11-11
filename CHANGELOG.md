@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add explicit Chrome/Edge/Firefox link handoff extensions, site exclusions, native-host registration/removal, and a local review inbox with destination choice and replay protection.
+- Add browser message framing/allowlist, extension logic, registration, and reviewed-transfer integration tests.
 - Add global/per-torrent upload limits, uploaded byte totals, share ratio, and configurable seeding policies.
 - Add paused torrent import with file selection, peer/tracker inspection, and verified-piece visualization.
 - Add per-download controls, queue labels/filtering, multiple selection, move-to-front, and scheduled starts while the app is open.

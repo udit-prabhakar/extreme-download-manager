@@ -1,0 +1,3 @@
+#!/bin/sh
+# Browser stdio carries framed JSON only; never write diagnostics to stdout.
+exec "$(dirname "$0")/ExtremeDownloadManager" --browser-native-host "$@"

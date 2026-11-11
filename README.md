@@ -15,6 +15,7 @@ A native macOS download manager built with SwiftUI and an isolated aria2 transfe
 - Torrent file selection, peer/tracker details, verified-piece map, and media-piece prioritization.
 - Per-download connection/bandwidth settings, named queue filters, bulk actions, and scheduled starts while the app is open.
 - Resource-validator-based link repair, SHA-256 checks, stable download IDs, and transactional SQLite history with legacy migration.
+- Explicit Chrome/Edge/Firefox link handoff extensions, a local review inbox, and per-site exclusions. Development setup is described in [browser integration](docs/BROWSER_INTEGRATION.md).
 
 This is an early working application. Protocol support comes from aria2; local HTTP transfers and controlled local torrent uploads have been tested. Public-swarm behavior and every supported network protocol have not been independently verified. The roadmap distinguishes this implementation from remaining proposals.
 
@@ -39,6 +40,8 @@ bash scripts/test.sh
 ```
 
 Tests start a loopback fixture server, transfer 24 MiB, check concurrency, pause/restart/resume, verify SHA-256, exercise removal and HTTP failure handling, and import torrent metadata. They also exercise history migration, profile locking, scheduled transfers, link repair, file selection, upload caps against a real local peer, and seeding-policy changes. Public peer discovery is disabled during tests. Generated evidence stays in the ignored `.build/` directory.
+
+Browser extension logic and native-message framing tests require Node.js 20+ in addition to the build dependencies. The suite also checks browser inbox review, deduplication, dismissal, and a real local download after acceptance. Browser store publication and permanent Firefox installation remain pending.
 
 An additional isolated protocol experiment is available with `python3 Tests/torrent_hello_experiment.py`. It verifies that a real receiving client rejects a corrupted torrent piece; it does not contact public peers or change the application engine.
 

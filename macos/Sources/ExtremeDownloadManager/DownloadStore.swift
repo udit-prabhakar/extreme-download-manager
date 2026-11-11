@@ -15,6 +15,10 @@ final class DownloadStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var showingAdd = false
     @Published var showingSettings = false
+    @Published var showingBrowserInbox = false
+    @Published var browserCaptures: [BrowserCapture] = []
+    @Published var browserInboxError: String?
+    private var browserTask: Task<Void, Never>?
     @Published var speedHistory: [Double] = Array(repeating: 0, count: 60)
     @Published var totalSpeed: Int64 = 0
     @Published var uploadSpeed: Int64 = 0
@@ -353,7 +357,7 @@ final class DownloadStore: ObservableObject {
     func flushPersistence() async { await persistenceTask?.value }
 
     func shutdown() async {
-        stopping = true; pollTask?.cancel()
+        stopping = true; pollTask?.cancel(); browserTask?.cancel()
         await engine.shutdown()
         for i in items.indices where ["active", "waiting"].contains(items[i].status) { items[i].status = "paused"; items[i].speed = 0 }
         persist(); await flushPersistence()
@@ -361,6 +365,45 @@ final class DownloadStore: ObservableObject {
 }
 
 extension DownloadStore {
+    func startBrowserInbox() {
+        guard browserTask == nil else { return }
+        browserTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshBrowserInbox()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    func refreshBrowserInbox() async {
+        let directory = dataDirectory
+        do {
+            let captures = try await Task.detached { try BrowserBridge.pending(profile: directory) }.value
+            browserCaptures = captures; browserInboxError = nil
+        } catch { browserInboxError = "Could not read the browser inbox: \(error.localizedDescription)" }
+    }
+
+    func dismissBrowserCapture(_ capture: BrowserCapture) async {
+        do { try BrowserBridge.acknowledge(capture.id, profile: dataDirectory); await refreshBrowserInbox() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    func acceptBrowserCapture(_ capture: BrowserCapture, directory: String, filename: String) async -> Bool {
+        guard browserCaptures.contains(where: { $0.id == capture.id }) else { return false }
+        if !items.contains(where: { $0.browserRequestID == capture.id }) {
+            guard await addURLs(capture.url, directory: directory, filename: filename) else { return false }
+            if let index = items.firstIndex(where: { $0.id == selection }) { items[index].browserRequestID = capture.id }
+            persist(); await flushPersistence()
+            do {
+                guard let database else { throw EngineError(message: "Download history is unavailable. The browser link was kept for retry.") }
+                try await database.save(items, preferences: preferences)
+            } catch { errorMessage = error.localizedDescription; return false }
+        }
+        await dismissBrowserCapture(capture)
+        return !browserCaptures.contains(where: { $0.id == capture.id })
+    }
+
     func select(_ id: String, extending: Bool = false) {
         if extending {
             if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }

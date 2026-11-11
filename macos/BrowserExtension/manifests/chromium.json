@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Extreme Download Manager — Link Handoff",
+  "version": "0.1.0",
+  "description": "Send chosen download links to Extreme Download Manager for review.",
+  "minimum_chrome_version": "123",
+  "permissions": ["nativeMessaging", "contextMenus", "storage", "activeTab"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_title": "Send to Extreme", "default_popup": "popup.html"},
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4y608cYpcaBG2YkaPXNViMAJm1Z/6yJ0Ze2nkVhNI2sHpHht8JN9ggtqLsT8AMQ0vY+7LmHxT16d5MrE7wc628/UIgeROFE8jMCGxEkO3HGbXSL1wHcQrlw/Zj4UFD9Pyb7McT3A6vuUOQ6RJMpzGxZemtFpZiBWz+qXafd3Va5tzHoOqFoKZCjKcdJM2Hz2s9S/TQ1P/TKHq9ykZu5sTNocTfb4fwVJPVOoCOmD/j6TTXlPgaRNv3QD7j/00oYuUVHy7xB8S5+CoHErymeOnmZFFnlb48vdp81St9EN3e1h0NSSo+NeXLx8hLOyPJ93bpWR40375b+SeSXnrfcnVwIDAQAB"
+}

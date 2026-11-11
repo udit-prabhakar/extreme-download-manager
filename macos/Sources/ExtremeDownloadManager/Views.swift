@@ -34,12 +34,13 @@ struct MainView: View {
         .sheet(isPresented: $store.showingAdd) { AddDownloadView(store: store) }
         .sheet(isPresented: $store.showingSettings) { PreferencesView(store: store) }
         .sheet(item: $store.editingTransfer) { TransferControlsView(store: store, initial: $0) }
-        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil && !store.showingAdd && !store.showingSettings && store.editingTransfer == nil }, set: { if !$0 { store.errorMessage = nil } })) {
+        .sheet(isPresented: $store.showingBrowserInbox) { BrowserInboxView(store: store) }
+        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil && !store.showingAdd && !store.showingSettings && !store.showingBrowserInbox && store.editingTransfer == nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
         .onDrop(of: [UTType.url.identifier, UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: $isDropTarget, perform: receiveDrop)
         .overlay { if isDropTarget { RoundedRectangle(cornerRadius: 12).stroke(accent, style: StrokeStyle(lineWidth: 3, dash: [10])).padding(10).allowsHitTesting(false) } }
-        .task { await store.start() }
+        .task { store.startBrowserInbox(); await store.start() }
     }
 
     private var titleBar: some View {
@@ -53,6 +54,10 @@ struct MainView: View {
                 Text("DOWNLOAD MANAGER").font(.system(size: 8, weight: .semibold)).tracking(2).foregroundStyle(.secondary)
             }
             Spacer()
+            Button { store.showingBrowserInbox = true } label: {
+                Label(store.browserCaptures.isEmpty ? "Browser links" : "Browser links (\(store.browserCaptures.count))", systemImage: "globe")
+                    .font(.system(size: 11))
+            }.help("Review browser links and set up browser integration")
             HStack(spacing: 6) {
                 Circle().fill(store.ready ? accent : Color.orange).frame(width: 6, height: 6)
                 Text(store.ready ? "Ready when you are" : store.engineMessage).font(.system(size: 11)).foregroundStyle(.secondary)

@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Extreme Download Manager — Link Handoff",
+  "version": "0.1.0",
+  "description": "Send chosen download links to Extreme Download Manager for review.",
+  "permissions": ["nativeMessaging", "contextMenus", "storage", "activeTab"],
+  "background": {"scripts": ["core.js", "background.js"]},
+  "action": {"default_title": "Send to Extreme", "default_popup": "popup.html"},
+  "browser_specific_settings": {"gecko": {"id": "browser@extreme.downloadmanager.app", "strict_min_version": "140.0", "data_collection_permissions": {"required": ["browsingActivity", "websiteContent"]}}}
+}

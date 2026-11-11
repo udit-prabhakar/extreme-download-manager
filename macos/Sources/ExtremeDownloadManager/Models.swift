@@ -55,6 +55,7 @@ struct DownloadItem: Codable, Identifiable, Equatable {
     var isSeeding: Bool? = nil
     var configurationValue: DownloadConfiguration? = nil
     var verification: String? = nil
+    var browserRequestID: UUID? = nil
     var gid: String { engineID ?? id }
     var configuration: DownloadConfiguration {
         get { configurationValue ?? DownloadConfiguration() }

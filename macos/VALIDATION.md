@@ -2,6 +2,16 @@
 
 Verified locally on the development Mac on 2026-11-11.
 
+## Browser handoff milestone
+
+- Five Node.js extension tests passed for URL filtering, exclusion host boundaries, narrow permissions, manifest identity, message contents, and context-menu actions.
+- The real Swift native host passed framed stdio tests for Chromium/Firefox caller arguments, extension allowlists, private file permissions, unsupported URL schemes, embedded credentials, protocol versions, malformed/truncated input, and oversized frames. Evidence: `.build/browser-host-rmipepph/`.
+- The expanded transfer suite passed with isolated Chrome/Edge/Firefox registration/removal, review-before-download, paused preferences, request replay protection, dismissal, and a checksum-correct 24 MiB download. Evidence: `.build/integration-8iesg2yr/`.
+- The release app built and passed plist and ad-hoc signature validation. Packaged extensions and the executable native host wrapper are included in the bundle.
+- A real packaged host message woke the app in `.build/browser-ui-profile/`. Native UI checks verified the pending-link badge, review form, setup instructions, registration/removal under `.build/browser-ui-library/`, acceptance, and empty inbox afterward. `Browser UI verified.bin` completed with the expected checksum and its browser request ID persisted in SQLite. Quitting removed the engine's runtime configuration.
+
+The extension logic tests use browser API fixtures; no extension was installed into the user's real browser profiles. Actual installed-extension behavior across Chrome, Edge, and Firefox, permanent/signed Firefox installation, store publication, automatic download capture, and authenticated request handoff remain unverified or unimplemented as described in the browser integration guide. The native-host-to-app path was exercised with genuine protocol frames and the built helper.
+
 ## Transfer controls and recovery milestone
 
 The final expanded run passed all checks; local evidence is in `.build/integration-r4z0x3u1/`. The controlled peer received 524,288 verified bytes at 62,363 B/s under the 64K cap, and the HTTP fixture recorded 23 Range requests. The final release build, bundle plist, and ad-hoc signature checks also passed.

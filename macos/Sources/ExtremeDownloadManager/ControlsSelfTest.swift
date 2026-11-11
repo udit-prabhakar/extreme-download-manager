@@ -149,6 +149,7 @@ enum ControlsSelfTest {
                 _ = try await wait(store, id: current.id) { $0.status == "complete" }
             }
             print("PASS: changing seed policy stops completed-torrent sharing")
+            try await BrowserSelfTest.run(base: base, store: store, directory: directory)
             store.persist(); await store.flushPersistence()
             await store.shutdown()
             let savedDB = try HistoryDatabase(directory: store.dataDirectory)
