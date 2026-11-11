@@ -19,7 +19,7 @@ try:
     port = int(port_file.read_text())
     base = f'http://127.0.0.1:{port}'
     env = {**os.environ, 'EDM_DATA_DIR': str(run / 'app-data'), 'EDM_OFFLINE_TEST': '1'}
-    result = subprocess.run([str(root / '.build/debug/ExtremeDownloadManager'), '--engine-self-test', '--test-url', base], env=env, text=True, capture_output=True, timeout=150)
+    result = subprocess.run([str(root / '.build/debug/ExtremeDownloadManager'), '--engine-self-test', '--test-url', base], env=env, text=True, capture_output=True, timeout=300)
     print(result.stdout, end=''); print(result.stderr, end='', file=sys.stderr)
     (run / 'swift-test.log').write_text(result.stdout + result.stderr)
     if result.returncode: sys.exit(result.returncode)

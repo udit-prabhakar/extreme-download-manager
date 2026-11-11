@@ -3,9 +3,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 private let accent = Color(red: 0.06, green: 0.55, blue: 0.49)
-private let ink = Color(red: 0.12, green: 0.17, blue: 0.22)
-private let canvas = Color(red: 0.96, green: 0.97, blue: 0.97)
-private let line = Color.black.opacity(0.07)
+private let ink = Color.primary
+private let canvas = Color(nsColor: .windowBackgroundColor)
+private let surface = Color(nsColor: .textBackgroundColor)
+private let line = Color.primary.opacity(0.07)
 
 @MainActor
 struct MainView: View {
@@ -29,10 +30,11 @@ struct MainView: View {
         .background(canvas)
         .foregroundStyle(ink)
         .frame(minWidth: 1020, minHeight: 680)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(store.preferences.extra.theme == "system" ? nil : store.preferences.extra.theme == "dark" ? .dark : .light)
         .sheet(isPresented: $store.showingAdd) { AddDownloadView(store: store) }
         .sheet(isPresented: $store.showingSettings) { PreferencesView(store: store) }
-        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
+        .sheet(item: $store.editingTransfer) { TransferControlsView(store: store, initial: $0) }
+        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil && !store.showingAdd && !store.showingSettings && store.editingTransfer == nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
         .onDrop(of: [UTType.url.identifier, UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: $isDropTarget, perform: receiveDrop)
@@ -57,7 +59,7 @@ struct MainView: View {
             }
             Button { store.showingSettings = true } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 16)).frame(width: 34, height: 34) }
                 .buttonStyle(.plain).help("Preferences")
-        }.padding(.horizontal, 24).padding(.vertical, 16).background(.white)
+        }.padding(.horizontal, 24).padding(.vertical, 16).background(surface)
         .overlay(alignment: .bottom) { Rectangle().fill(line).frame(height: 1) }
     }
 
@@ -65,7 +67,7 @@ struct MainView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("LIBRARY").font(.system(size: 10, weight: .semibold)).tracking(1.6).foregroundStyle(.secondary).padding(.horizontal, 18).padding(.bottom, 12).padding(.top, 27)
             ForEach(DownloadFilter.allCases) { filter in
-                Button { store.filter = filter; store.selection = nil } label: {
+                Button { store.filter = filter; store.selection = nil; store.selectedIDs.removeAll() } label: {
                     HStack(spacing: 11) {
                         Image(systemName: filter.icon).font(.system(size: 16)).frame(width: 20)
                         Text(filter.rawValue).font(.system(size: 12, weight: store.filter == filter ? .semibold : .medium))
@@ -88,8 +90,8 @@ struct MainView: View {
                     Spacer()
                     Button { NSWorkspace.shared.open(URL(fileURLWithPath: store.preferences.directory)) } label: { Image(systemName: "arrow.up.right").font(.system(size: 10)) }.buttonStyle(.plain).help("Open download folder")
                 }
-            }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line)).padding(.bottom, 18)
-            HStack { Text("EXTREME").font(.system(size: 9, weight: .bold)).tracking(1.5); Spacer(); Text("v1.0").font(.system(size: 10)) }.foregroundStyle(.tertiary).padding(.horizontal, 8).padding(.bottom, 12)
+            }.padding(14).background(surface, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line)).padding(.bottom, 18)
+            HStack { Text("EXTREME").font(.system(size: 9, weight: .bold)).tracking(1.5); Spacer(); Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0")).font(.system(size: 10)) }.foregroundStyle(.tertiary).padding(.horizontal, 8).padding(.bottom, 12)
         }.padding(.horizontal, 12)
     }
 
@@ -109,20 +111,31 @@ struct MainView: View {
     private var commandBar: some View {
         HStack(spacing: 6) {
             toolButton("play.fill", "Resume", "Resume selected or all paused downloads") {
-                Task { if let item = store.selectedItem { await store.perform("resume", item: item) } else { await store.resumeAll() } }
-            }.disabled(!store.ready || (store.selectedItem.map { !["paused", "error"].contains($0.status) } ?? !store.items.contains { $0.status == "paused" }))
+                Task { await store.bulk("resume") }
+            }.disabled(!store.ready || !(store.actionTargets.isEmpty ? store.items : store.actionTargets).contains { ["paused", "error"].contains($0.status) })
             toolButton("pause.fill", "Pause", "Pause selected or all downloads") {
-                Task { if let item = store.selectedItem { await store.perform("pause", item: item) } else { await store.pauseAll() } }
-            }.disabled(!store.ready || (store.selectedItem.map { !["active", "waiting"].contains($0.status) } ?? !store.items.contains { ["active", "waiting"].contains($0.status) }))
+                Task { await store.bulk("pause") }
+            }.disabled(!store.ready || !(store.actionTargets.isEmpty ? store.items : store.actionTargets).contains { ["active", "waiting"].contains($0.status) })
             Rectangle().fill(line).frame(width: 1, height: 17).padding(.horizontal, 5)
             toolButton("doc.badge.plus", "Torrent", "Import a .torrent file") { store.importTorrent() }.disabled(!store.ready)
-            toolButton("trash", "", "Remove selected download from the list; keep its files") { if let item = store.selectedItem { Task { await store.remove(item) } } }.disabled(store.selectedItem == nil || !store.ready)
+            toolButton("trash", "", "Remove selected download from the list; keep its files") { Task { await store.bulk("remove") } }.disabled(store.selectedItem == nil || !store.ready)
+            Menu {
+                Button("Select all visible") { store.selectAllVisible() }
+                Button("Clear selection") { store.selectedIDs.removeAll(); store.selection = nil }
+                Divider()
+                Button("Download controls…") { if let item = store.selectedItem { store.showControls(item) } }.disabled(store.selectedItem == nil)
+                Button("Move to front") { if let item = store.selectedItem { Task { await store.prioritize(item) } } }.disabled(store.selectedItem == nil)
+            } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).frame(width: 24)
+            Menu {
+                Button("All queues") { store.queueFilter = "" }
+                ForEach(store.preferences.extra.queueNames, id: \.self) { queue in Button(queue) { store.queueFilter = queue } }
+            } label: { Text(store.queueFilter.isEmpty ? "All queues" : store.queueFilter).font(.system(size: 10)) }.menuStyle(.borderlessButton).frame(width: 90)
             Spacer(minLength: 10)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(.secondary)
                 TextField("Search downloads", text: $store.search).textFieldStyle(.plain).font(.system(size: 11))
                 if !store.search.isEmpty { Button { store.search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain) }
-            }.padding(.horizontal, 10).padding(.vertical, 8).frame(width: 190).background(.white, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(line))
+            }.padding(.horizontal, 10).padding(.vertical, 8).frame(width: 190).background(surface, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(line))
         }.padding(.horizontal, 22).padding(.bottom, 14)
     }
 
@@ -150,10 +163,13 @@ struct MainView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
-                            DownloadRow(item: item, selected: store.selection == item.id, onSelect: { store.selection = item.id }, onToggle: {
+                            DownloadRow(item: item, selected: store.selectedIDs.contains(item.id) || store.selection == item.id, onSelect: { store.select(item.id, extending: NSApp.currentEvent?.modifierFlags.contains(.command) == true) }, onToggle: {
                                 Task { await store.perform(item.status == "active" || item.status == "waiting" ? "pause" : "resume", item: item) }
                             })
                             .contextMenu {
+                                Button("Download controls…") { store.showControls(item) }
+                                if !item.isTorrent { Button("Repair link…") { store.showControls(item, tab: 3) } }
+                                if ["paused", "waiting"].contains(item.status) { Button("Move to front") { Task { await store.prioritize(item) } } }
                                 if item.status == "complete" { Button("Open file") { store.open(item) } }
                                 Button("Show in Finder") { store.reveal(item) }
                                 Button("Copy source URL") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(item.source, forType: .string) }
@@ -165,9 +181,9 @@ struct MainView: View {
                             .onTapGesture(count: 2) { store.open(item) }
                         }
                     }
-                }.background(.white)
+                }.background(surface)
             }
-        }.background(.white).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line))
+        }.background(surface).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line))
             .padding(.horizontal, 24).padding(.bottom, 18).frame(minHeight: 230, maxHeight: .infinity)
     }
 
@@ -196,7 +212,7 @@ struct MainView: View {
             Image(systemName: "arrow.up"); Text("\(bytes(store.uploadSpeed))/s").monospacedDigit()
             Text("·").padding(.horizontal, 7)
             Text(store.preferences.speedLimit == "0" ? "No speed limit" : "Limit: \(store.preferences.speedLimit)/s")
-        }.font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 20).frame(height: 31).background(.white)
+        }.font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 20).frame(height: 31).background(surface)
             .overlay(alignment: .top) { Rectangle().fill(line).frame(height: 1) }
     }
 
@@ -270,7 +286,7 @@ struct DownloadRow: View {
             Button(action: onToggle) {
                 Image(systemName: item.status == "complete" ? "checkmark" : ["active", "waiting"].contains(item.status) ? "pause.fill" : "play.fill").font(.system(size: 11)).foregroundStyle(item.status == "complete" ? accent : .secondary).frame(width: 28, height: 28).background(.black.opacity(0.035), in: Circle())
             }.buttonStyle(.plain).disabled(item.status == "complete").help(["active", "waiting"].contains(item.status) ? "Pause" : "Resume")
-        }.padding(.horizontal, 23).padding(.vertical, 17).background(selected ? accent.opacity(0.055) : .white)
+        }.padding(.horizontal, 23).padding(.vertical, 17).background(selected ? accent.opacity(0.055) : surface)
             .overlay(alignment: .bottom) { Rectangle().fill(line).frame(height: 1) }
             .contentShape(Rectangle()).onTapGesture(perform: onSelect)
     }
@@ -313,6 +329,8 @@ struct ActivityPanel: View {
                 VStack(alignment: .leading, spacing: 8) {
                     detail("Source", item.source)
                     detail("Save to", item.directory)
+                    if item.isTorrent { detail("Uploaded", "\(bytes(item.uploadedBytes ?? 0))  ·  Ratio \(String(format: "%.2f", item.shareRatio))") }
+                    detail("Queue", item.configuration.queue)
                     detail("Transfer", "\(bytes(item.completed)) of \(item.total > 0 ? bytes(item.total) : "unknown size")  ·  \(item.connections) connections")
                     if !item.error.isEmpty { Text(item.error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2).textSelection(.enabled) }
                 }.frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
@@ -364,6 +382,10 @@ struct AddDownloadView: View {
     @State private var directory = ""
     @State private var filename = ""
     @State private var submitting = false
+    @State private var advanced = false
+    @State private var configuration = DownloadConfiguration()
+    @State private var scheduleEnabled = false
+    @State private var scheduledDate = Date().addingTimeInterval(3600)
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
@@ -386,6 +408,18 @@ struct AddDownloadView: View {
                 }.padding(10).background(canvas, in: RoundedRectangle(cornerRadius: 8))
             }
             TextField("File name (optional, single link only)", text: $filename).textFieldStyle(.roundedBorder).disabled(urls.split(whereSeparator: \.isNewline).count > 1)
+            DisclosureGroup("Advanced options", isExpanded: $advanced) {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack { Text("Queue").font(.caption); TextField("Default", text: $configuration.queue).textFieldStyle(.roundedBorder) }
+                    HStack { Text("Download limit").font(.caption); TextField("0 = unlimited; e.g. 1M", text: $configuration.downloadLimit).textFieldStyle(.roundedBorder) }
+                    TextField("Expected SHA-256 (HTTP/FTP, optional)", text: $configuration.sha256).textFieldStyle(.roundedBorder).font(.caption.monospaced())
+                    Toggle("Schedule for later", isOn: $scheduleEnabled)
+                    if scheduleEnabled {
+                        DatePicker("Start", selection: $scheduledDate, in: Date()...).datePickerStyle(.field)
+                        Text("Keep the app open for scheduled starts.").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }.padding(.top, 8)
+            }.font(.caption)
             HStack {
                 Image(systemName: "bolt.fill").foregroundStyle(accent)
                 Text("Up to \(store.preferences.connections) connections per download").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -395,15 +429,18 @@ struct AddDownloadView: View {
             HStack {
                 Button("Import torrent…") { store.importTorrent(); dismiss() }.buttonStyle(.link)
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(submitting ? "Adding…" : store.preferences.autoStart ? "Download" : "Add to queue") {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(submitting)
+                Button(submitting ? "Adding…" : scheduleEnabled ? "Schedule download" : store.preferences.autoStart ? "Download" : "Add to queue") {
+                    configuration.scheduledAt = scheduleEnabled ? scheduledDate : nil
                     submitting = true
-                    Task { if await store.addURLs(urls, directory: directory, filename: filename.trimmingCharacters(in: .whitespaces)) { dismiss() }; submitting = false }
+                    Task { if await store.addURLs(urls, directory: directory, filename: filename.trimmingCharacters(in: .whitespaces), configuration: configuration) { dismiss() }; submitting = false }
                 }.buttonStyle(.borderedProminent).tint(accent).keyboardShortcut(.defaultAction).disabled(urls.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || submitting || !store.ready)
             }
-        }.padding(28).frame(width: 530).background(.white).foregroundStyle(ink)
+        }.padding(28).frame(width: 530).background(surface).foregroundStyle(ink)
+            .transferErrorAlert(store).interactiveDismissDisabled(submitting)
             .onAppear {
                 directory = store.preferences.directory
+                configuration = .defaults(store.preferences)
                 if !store.incomingURL.isEmpty { urls = store.incomingURL; store.incomingURL = "" }
                 else if let clipboard = NSPasteboard.general.string(forType: .string), ["http://", "https://", "magnet:"].contains(where: { clipboard.hasPrefix($0) }) { urls = clipboard }
             }
@@ -428,8 +465,12 @@ struct PreferencesView: View {
             Stepper(value: $draft.concurrentDownloads, in: 1...10) { setting("Simultaneous downloads", "\(draft.concurrentDownloads)") }
             Stepper(value: $draft.connections, in: 1...16) { setting("Connections per download", "\(draft.connections)") }
             HStack { Text("Download speed limit").font(.system(size: 12)); Spacer(); Picker("", selection: $draft.speedLimit) { Text("Unlimited").tag("0"); Text("1 MB/s").tag("1M"); Text("5 MB/s").tag("5M"); Text("10 MB/s").tag("10M"); Text("25 MB/s").tag("25M") }.labelsHidden().frame(width: 150) }
+            HStack { Text("Torrent upload limit").font(.system(size: 12)); Spacer(); TextField("0", text: $draft.extra.uploadLimit).textFieldStyle(.roundedBorder).frame(width: 110); Text("B/s").font(.caption).foregroundStyle(.secondary) }
+            Text("0 is unlimited. A cap such as 256K limits uploads while downloading and seeding.").font(.caption).foregroundStyle(.secondary)
+            SeedPolicyFields(mode: $draft.extra.seedMode, ratio: $draft.extra.seedRatio, minutes: $draft.extra.seedMinutes)
+            Picker("Appearance", selection: $draft.extra.theme) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
             Toggle("Start new downloads automatically", isOn: $draft.autoStart).font(.system(size: 12)).tint(accent)
-            Text("Connection changes apply to new downloads. Existing downloads retain their transfer settings. Unfinished downloads reopen paused.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
+            Text("Connection and seeding defaults apply to new downloads. Use Download controls to change an existing transfer. Unfinished downloads reopen paused.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
             Divider()
             HStack {
                 Button("Open app data") { NSWorkspace.shared.open(store.dataDirectory) }.buttonStyle(.link)
@@ -437,7 +478,7 @@ struct PreferencesView: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(saving ? "Saving…" : "Save preferences") { saving = true; Task { if await store.applyPreferences(draft) { dismiss() }; saving = false } }.buttonStyle(.borderedProminent).tint(accent).disabled(saving || !store.ready).keyboardShortcut(.defaultAction)
             }
-        }.padding(28).frame(width: 480).background(.white).foregroundStyle(ink).onAppear { draft = store.preferences }
+        }.padding(28).frame(width: 520).background(surface).foregroundStyle(ink).transferErrorAlert(store).onAppear { draft = store.preferences }
     }
     private func setting(_ name: String, _ value: String) -> some View { HStack { Text(name).font(.system(size: 12)); Spacer(); Text(value).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(accent).padding(.trailing, 10) } }
 }

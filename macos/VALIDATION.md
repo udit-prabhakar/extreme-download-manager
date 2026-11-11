@@ -2,6 +2,27 @@
 
 Verified locally on the development Mac on 2026-11-11.
 
+## Transfer controls and recovery milestone
+
+The final expanded run passed all checks; local evidence is in `.build/integration-r4z0x3u1/`. The controlled peer received 524,288 verified bytes at 62,363 B/s under the 64K cap, and the HTTP fixture recorded 23 Range requests. The final release build, bundle plist, and ad-hoc signature checks also passed.
+
+The expanded suite verifies the existing transfer/restart checks below plus:
+
+- One-time JSON-to-SQLite migration, preserving IDs and intentionally deleted history.
+- Single-profile ownership before an app reads or migrates shared history.
+- Link repair that refuses changed resource validators, retains valid partial data and the app ID, and completes with the expected SHA-256.
+- Scheduled starts, including recovery when the engine's scheduled job is missing.
+- Torrent file selection and per-torrent upload options; enabling and disabling media-piece prioritization.
+- A real loopback BitTorrent peer receiving and validating 512 KiB under a 64K upload cap.
+- Uploaded-byte accounting and switching a completed torrent from sharing to stop-after-completion.
+- Reopening SQLite history with completed transfers and torrent file choices retained; retrying a failed legacy entry without changing its app ID.
+
+The release application was visually inspected in its isolated test profile. Preferences show upload limits, seeding policies, and appearance controls. Importing a generated two-file torrent opened paused in the file-selection sheet; deselecting one file updated the selected count and size. Quitting stopped the owned engine and removed its private runtime configuration. No public tracker or swarm was used.
+
+The executable links Apple's system SQLite library. aria2 remains a separate dependency. Release builds are locally ad-hoc signed, not notarized distribution builds. GitHub CI results are reported separately from these local checks.
+
+## Earlier baseline verification
+
 Before the initial public GitHub push, the transfer suite, local torrent-integrity experiment, and release build were run again successfully from the relocated `macos/` directory. The corresponding local evidence is in `.build/integration-6ia70ef3/` and `.build/torrent-hello-mmipgu8u/`. Repository hygiene and workflow YAML syntax were also checked. GitHub CI results are reported separately by the repository's Actions checks.
 
 - Optimized Swift release build completed without compiler warnings.
@@ -10,7 +31,7 @@ Before the initial public GitHub push, the transfer suite, local torrent-integri
 - Final executable is native arm64; bundle uses the locally installed aria2 1.37.0 engine.
 - Final release window was visually inspected after the layout corrections.
 
-The final engine integration run passed every check. Evidence is in `.build/integration-72i6tz2e/`:
+The earlier engine integration run passed every baseline check. Evidence is in `.build/integration-72i6tz2e/`:
 
 1. Private engine startup and authenticated local RPC.
 2. Real download from a loopback HTTP fixture and concurrency queueing.

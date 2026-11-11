@@ -26,8 +26,21 @@ Requires macOS 13 or newer and a local `aria2c` executable. aria2 is already ins
 - Completed download history, Finder reveal, opening completed files, and source URL copying.
 - Drag-and-drop links or torrent files, plus native torrent/magnet document handling.
 - Separate application settings and engine session files. Unfinished downloads reopen paused; completed entries stay in history.
+- Global and per-torrent upload caps, cumulative uploaded bytes, share ratio, and stop/ratio/time/unlimited seeding policies.
+- Torrent import pauses before transfer so you can choose files. The inspector exposes peers, trackers, and verified piece availability.
+- Per-download limits, queue labels/filters, multiple selection, move-to-front, and scheduled starts while the app stays open.
+- Compatible expired-link repair, expected SHA-256 and completed-file verification, and light/dark/system appearance.
+- Transactional SQLite history, retained legacy JSON backup, stable identities across retries, and single-profile engine locking.
 
-Press **⌘N** to add a download, **⌘O** to import a torrent, and **⌘,** for preferences. Resume/Pause acts on the selected item, or on all applicable items when nothing is selected. Removing an item from the list stops it and keeps its downloaded files. Right-click a download for additional actions. Torrent uploads stop when the download completes; uploads can occur while downloading.
+Press **⌘N** to add a download, **⌘O** to import a torrent, and **⌘,** for preferences. Command-click rows to select several downloads, or use the toolbar selection menu. Resume/Pause acts on selected items, or all applicable items when nothing is selected. Removing an item keeps its files. Right-click for **Download controls** or **Repair link**.
+
+Preferences set the global upload cap and seeding defaults for new transfers. **0 means unlimited bandwidth**, not zero uploading. The default seeding policy stops at completion; the other policies deliberately keep sharing. Uploads can occur during downloading under every seeding policy. Per-download caps and policies are available in Download controls.
+
+Torrent imports open a file-selection sheet before transfer starts. Select at least one file and choose **Download selected files**. Shared boundary pieces can contain bytes from neighboring skipped files. Media prioritization requests beginning/end pieces; it does not guarantee playback or supply a built-in player.
+
+For scheduling, open Advanced options when adding a link, or use Download controls. **The app must remain open** for the scheduled start. Named queues organize/filter transfers; they do not have separate concurrency or time-window policies yet.
+
+Repairing a link while preserving data requires matching resource size and strong ETag or Last-Modified validators. Conflicting validators are refused. When the source cannot establish compatibility, choose **Start a separate file** to retain the old partial data. Expected checksums add an independent content-integrity check.
 
 ## Build from source
 
@@ -53,6 +66,9 @@ bash scripts/build.sh debug
 | `DownloadStore.swift` | App state, filtering, actions, history, and polling. |
 | `Engine.swift` | Owned aria2 subprocess and authenticated JSON-RPC client. |
 | `Models.swift` | Transfer metadata and presentation values. |
+| `HistoryDatabase.swift` | Off-main-actor transactional SQLite history and one-time legacy migration. |
+| `TransferControlsView.swift` | Per-download, torrent file/peer, scheduling, repair, and integrity controls. |
+| `TransferUtilities.swift` | Resource validator probing, background checksums, and recovery explanations. |
 | `App.swift` | App lifecycle, menu commands, and document handling. |
 | `EngineSelfTest.swift` | Explicit CLI-only transfer integration test. |
 
@@ -62,7 +78,7 @@ The [aria2 RPC documentation](https://aria2.github.io/manual/en/html/aria2c.html
 
 ## Data and connections
 
-Normal app data lives in `~/Library/Application Support/Extreme Download Manager/`: preferences, download history, engine session/control metadata, and an engine log. Download destinations default to `~/Downloads`. Download URLs can contain private information; history/session files are local. Folders are created with private permissions. The `.aria2` control files beside incomplete downloads are needed for reliable resume.
+Normal app data lives in `~/Library/Application Support/Extreme Download Manager/`: preferences, `history.sqlite` and its WAL files, engine session/control metadata, and a log. Existing `history.json` records are imported once; the original and `history-v1-backup.json` are retained. Keep SQLite WAL files together with the database when inspecting or backing up a live profile. Download destinations default to `~/Downloads`. Download URLs can contain private information; history/session files are local. Folders are created with private permissions. The `.aria2` control files beside incomplete downloads are needed for reliable resume.
 
 There is no application analytics service, vendor reporting endpoint, cloud account, or automatic updater. Network connections are made by downloads and torrent features. BitTorrent can contact trackers, DHT nodes, and peers; the app's local RPC connection is separate from those transfers. The engine verifies HTTPS certificates and does not automatically import browser cookies or `.netrc` credentials.
 
@@ -74,7 +90,7 @@ EDM_OFFLINE_TEST=1 \
 "build/Extreme Download Manager.app/Contents/MacOS/ExtremeDownloadManager"
 ```
 
-`EDM_OFFLINE_TEST=1` disables DHT for isolated testing. It does not block outbound HTTP URLs; the test suite supplies only a loopback server.
+`EDM_OFFLINE_TEST=1` disables DHT and peer exchange for isolated testing. It does not block outbound HTTP URLs; the test suite supplies only a loopback server and controlled loopback peers.
 
 ## Verification
 
@@ -84,12 +100,12 @@ Build and run the local integration suite:
 bash scripts/test.sh
 ```
 
-It starts a deterministic loopback-only range server and tests an actual 24 MiB download, concurrency queueing, pause, engine restart, resume, SHA-256 integrity, removal, HTTP failures, and paused torrent metadata import. It verifies that requests after restart use nonzero byte offsets and that completed files are not requeued. DHT is disabled, and no public torrent swarm is used. Run evidence is retained under `.build/integration-*`.
+It tests real HTTP transfer/recovery, checksums, queue behavior, error handling, history migration/reopening, profile locking, link repair, scheduled starts, torrent file selection, a capped upload to a real local peer, and changing a seeding policy. It verifies nonzero resume offsets and that completed files are not requeued. Public peer discovery is disabled, and no public swarm is used. Evidence stays under `.build/integration-*`.
 
 A download was also added through the actual native dialog, saved to a project test folder, verified by SHA-256, and confirmed in persisted completed history after quitting the app.
 
 ## Current boundaries
 
-This is a working FDM-style download manager, not full feature parity with FDM. Browser interception/extensions, site-specific video extraction, media conversion, timed scheduling, custom authentication/header dialogs, and selective torrent-file controls are not implemented. Ordinary downloadable media URLs work. Network protocols beyond local HTTP and torrent metadata parsing have not been integration-tested here. Torrent swarm throughput and magnet discovery have not been tested against public peers.
+This is a working FDM-style download manager, not full feature parity with FDM. Browser interception/extensions, site-specific video extraction, media conversion, background scheduling while closed, custom authentication/header dialogs, torrent creation, remote control, and advanced per-file priorities are not implemented. Ordinary downloadable media URLs work. Protocols beyond local HTTP and controlled torrent exchanges have not been integration-tested here; public magnet discovery and public-swarm performance remain unverified. aria2 is still a separate dependency and the app is not notarized.
 
 The pre-existing reverse-engineering notes under `analysis/fdm` are reference artifacts and are not part of the application build. aria2 is a separate GPL-licensed program; see its project for its license and source.
