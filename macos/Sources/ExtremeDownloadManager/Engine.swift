@@ -11,7 +11,12 @@ final class TransferEngine {
     private var logHandle: FileHandle?
     private var configURL: URL?
     private let session: URLSession
+    private var lockDescriptor: Int32 = -1
+    private var metadata: [String: [String: Any]] = [:]
+    private var stoppedCache: [[String: Any]] = []
+    private var lastStoppedRefresh = Date.distantPast
     var running: Bool { process?.isRunning == true }
+    private(set) var peerPort = 0
 
     init(dataDirectory: URL) {
         self.dataDirectory = dataDirectory
@@ -44,6 +49,17 @@ final class TransferEngine {
 
     func start(preferences: AppPreferences) async throws {
         if running { return }
+        try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        lockDescriptor = Darwin.open(dataDirectory.appendingPathComponent("engine.lock").path, O_CREAT | O_RDWR, 0o600)
+        guard lockDescriptor >= 0, flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
+            releaseLock()
+            throw EngineError(message: "Another Extreme Download Manager instance is using this profile. Close it before opening this one.")
+        }
+        do { try await startProcess(preferences: preferences) }
+        catch { await shutdown(); releaseLock(); throw error }
+    }
+
+    private func startProcess(preferences: AppPreferences) async throws {
         let candidates = [ProcessInfo.processInfo.environment["EDM_ARIA2_PATH"], Bundle.main.url(forResource: "aria2c", withExtension: nil)?.path, "/opt/homebrew/bin/aria2c", "/usr/local/bin/aria2c"].compactMap { $0 }
         guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             throw EngineError(message: "The download engine is missing. Install aria2 with ‘brew install aria2’, then restart Extreme Download Manager.")
@@ -52,6 +68,7 @@ final class TransferEngine {
         let sessionFile = dataDirectory.appendingPathComponent("transfers.session")
         if !FileManager.default.fileExists(atPath: sessionFile.path) { FileManager.default.createFile(atPath: sessionFile.path, contents: Data(), attributes: [.posixPermissions: 0o600]) }
         let port = try availablePort()
+        repeat { peerPort = try availablePort() } while peerPort == port
         endpoint = URL(string: "http://127.0.0.1:\(port)/jsonrpc")!
         let config = dataDirectory.appendingPathComponent("engine.conf")
         let text = """
@@ -61,6 +78,7 @@ final class TransferEngine {
         rpc-listen-port=\(port)
         rpc-secret=\(secret)
         rpc-max-request-size=16M
+        listen-port=\(peerPort)
         input-file=\(sessionFile.path)
         save-session=\(sessionFile.path)
         save-session-interval=5
@@ -75,6 +93,7 @@ final class TransferEngine {
         split=\(preferences.connections)
         min-split-size=1M
         max-overall-download-limit=\(preferences.speedLimit)
+        max-overall-upload-limit=\(preferences.extra.uploadLimit)
         file-allocation=none
         auto-file-renaming=true
         allow-overwrite=false
@@ -82,10 +101,11 @@ final class TransferEngine {
         retry-wait=3
         connect-timeout=20
         timeout=60
-        seed-time=0
         bt-save-metadata=true
         enable-dht=\(ProcessInfo.processInfo.environment["EDM_OFFLINE_TEST"] == "1" ? "false" : "true")
         enable-dht6=false
+        enable-peer-exchange=\(ProcessInfo.processInfo.environment["EDM_OFFLINE_TEST"] == "1" ? "false" : "true")
+        bt-enable-lpd=false
         dht-file-path=\(dataDirectory.appendingPathComponent("dht.dat").path)
         no-netrc=true
         check-certificate=true
@@ -127,37 +147,59 @@ final class TransferEngine {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": UUID().uuidString, "method": "aria2." + method, "params": ["token:" + secret] + parameters])
         let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw EngineError(message: "Unexpected response from the local download engine.")
         }
         if let error = object["error"] as? [String: Any] {
             throw EngineError(message: error["message"] as? String ?? "Download operation failed.")
         }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw EngineError(message: "The local engine returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0).") }
+        if ["forceRemove", "remove", "removeDownloadResult", "unpause", "forcePause", "forcePauseAll", "unpauseAll", "changeOption"].contains(method) { invalidate() }
         return object["result"] ?? NSNull()
     }
 
     func snapshot() async throws -> [[String: Any]] {
-        let keys = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "uploadSpeed", "connections", "files", "dir", "bittorrent", "errorMessage", "followedBy"]
+        let keys = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "uploadSpeed", "uploadLength", "seeder", "connections", "errorCode", "errorMessage", "followedBy"]
         let active = try await call("tellActive", [keys]) as? [[String: Any]] ?? []
         let waiting = try await call("tellWaiting", [0, 10000, keys]) as? [[String: Any]] ?? []
-        let stopped = try await call("tellStopped", [0, 10000, keys]) as? [[String: Any]] ?? []
-        return active + waiting + stopped
+        if Date().timeIntervalSince(lastStoppedRefresh) > 2 || !active.isEmpty {
+            stoppedCache = try await call("tellStopped", [0, 10000, keys]) as? [[String: Any]] ?? []
+            lastStoppedRefresh = Date()
+        }
+        var records: [[String: Any]] = []
+        for raw in active + waiting + stoppedCache {
+            guard let gid = raw["gid"] as? String else { continue }
+            if metadata[gid] == nil || metadata[gid]?["status"] as? String != raw["status"] as? String {
+                metadata[gid] = try await call("tellStatus", [gid, keys + ["files", "dir", "bittorrent", "infoHash"]]) as? [String: Any]
+            }
+            records.append((metadata[gid] ?? [:]).merging(raw) { _, new in new })
+        }
+        return records
     }
 
-    func add(source: String, directory: String, filename: String?, preferences: AppPreferences, torrent: String? = nil) async throws -> String {
+    func add(source: String, directory: String, filename: String?, preferences: AppPreferences, torrent: String? = nil, configuration: DownloadConfiguration? = nil) async throws -> String {
         var options = ["dir": directory, "split": String(preferences.connections), "max-connection-per-server": String(preferences.connections), "pause": preferences.autoStart ? "false" : "true"]
+        let configuration = configuration ?? .defaults(preferences)
+        try configuration.validate()
+        options.merge(configuration.engineOptions) { _, new in new }
         if let filename, !filename.isEmpty { options["out"] = filename }
         let result: Any
         if let torrent { result = try await call("addTorrent", [torrent, [], options]) }
         else { result = try await call("addUri", [[source], options]) }
         guard let gid = result as? String else { throw EngineError(message: "The engine did not return a download ID.") }
         _ = try? await call("saveSession")
+        lastStoppedRefresh = .distantPast
         return gid
     }
 
+    func invalidate() { lastStoppedRefresh = .distantPast; metadata.removeAll() }
+
+    private func releaseLock() {
+        if lockDescriptor >= 0 { flock(lockDescriptor, LOCK_UN); close(lockDescriptor); lockDescriptor = -1 }
+    }
+
     func shutdown() async {
-        guard running else { return }
+        guard running else { releaseLock(); return }
         _ = try? await call("forcePauseAll")
         // Pause is asynchronous in aria2; wait for file/control-state finalization.
         for _ in 0..<60 {
@@ -185,5 +227,6 @@ final class TransferEngine {
         }
         try? logHandle?.close()
         if let configURL { try? FileManager.default.removeItem(at: configURL) }
+        releaseLock()
     }
 }

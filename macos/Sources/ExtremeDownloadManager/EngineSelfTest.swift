@@ -96,6 +96,8 @@ enum EngineSelfTest {
             try require(finalSnapshot.contains { $0["gid"] as? String == torrentID }, "Paused torrent was not restored")
             print("PASS: restart retains unfinished jobs and does not requeue completed files")
             await engine.shutdown()
+            _ = try await URLSession.shared.data(from: URL(string: base + "/checkpoint")!)
+            try await ControlsSelfTest.run(base: base, directory: directory)
             print("ALL ENGINE INTEGRATION CHECKS PASSED")
             exit(0)
         } catch {

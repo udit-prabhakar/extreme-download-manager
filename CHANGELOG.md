@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-- Feature development is tracked in `macos/ROADMAP.md`.
+- Add global/per-torrent upload limits, uploaded byte totals, share ratio, and configurable seeding policies.
+- Add paused torrent import with file selection, peer/tracker inspection, and verified-piece visualization.
+- Add per-download controls, queue labels/filtering, multiple selection, move-to-front, and scheduled starts while the app is open.
+- Add validator-based link repair and SHA-256 verification controls.
+- Preserve stable application IDs across retries and migrate history to a transactional SQLite database off the UI actor.
+- Add engine profile locking, cached metadata polling, clearer error handling, and appearance preferences.
+- Expand integration coverage to real controlled torrent uploads, policy changes, database migration/reopening, scheduling, and repair.
+- Remaining work is tracked in `macos/ROADMAP.md`.
 
 ## 1.0.0 — Initial source baseline
 

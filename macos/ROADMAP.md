@@ -1,6 +1,12 @@
 # Extreme Download Manager: feature gap review and roadmap
 
-Reviewed the current macOS source and official competitor documentation on 2026-11-11. This is a proposed roadmap; the features below have not been implemented by this review.
+Reviewed the macOS source and official competitor documentation on 2026-11-11. This roadmap includes both implemented foundations and remaining work.
+
+## Implementation status: transfer controls milestone
+
+Implemented: global/per-torrent upload caps, uploaded totals, configurable seeding, torrent file selection, peer/tracker/piece inspection, per-download limits, queue labels and filtering, multi-selection, move-to-front, scheduled starts while open, validator-based URL repair, SHA-256 verification, stable app IDs, transactional history migration, and profile locking.
+
+These are initial implementations, not closure of every priority row below. Full per-file priorities, broader authentication/recovery, browser capture, engine bundling/notarization, background time windows, media processing, and remote automation remain outstanding. Scheduling requires the app to stay open; queue labels do not yet define independent queue policies. See current usage and validation documents for exact behavior and test coverage.
 
 ## Product direction
 
@@ -54,8 +60,8 @@ P0 means essential to the intended daily-use product or a credible public releas
 ## Architecture work supported by the current code
 
 1. **Separate app records from engine IDs.** Keep a stable application download ID across retries, torrent metadata transitions, and engine restarts. Represent source URLs, engine jobs, and completed files as distinct records.
-2. **Use transactional persistence.** `DownloadStore.persist()` currently serializes all history as JSON on the main actor. Move persistence to a database worker with schema versions and incremental updates. Keep secrets in Keychain, separate from history.
-3. **Reduce polling cost.** `TransferEngine.snapshot()` requests active, waiting, and stopped jobs with file metadata repeatedly. Poll active statistics frequently; cache terminal history and metadata; page large queues. Measure before choosing events/WebSockets versus polling.
+2. **Extend transactional persistence.** History now uses incremental SQLite writes on a database actor with a legacy migration. Add future schema migrations, interrupted-write recovery checks, and backup/restore UI. Keep future authentication secrets in Keychain, separate from history.
+3. **Measure polling cost.** Active statistics now use light polling with cached file metadata and terminal records. Large-queue paging and responsiveness benchmarks remain. Measure before choosing events/WebSockets versus polling.
 4. **Keep disk/CPU work off the UI actor.** Large torrent reads, base64 encoding, history encoding, and future checksum/extraction work should not block interface interaction.
 5. **Supervise engine lifecycle.** Add health reporting, reconnection/restart policy, cleanup verification, startup cancellation, and profile locking. Preserve private authenticated loopback control.
 6. **Add an engine capability interface.** Expose supported features and version-specific limits. Retain aria2 for the first improvements. Evaluate a specialized torrent backend if advanced requirements cannot be met; do not rewrite a transfer engine merely to claim acceleration.

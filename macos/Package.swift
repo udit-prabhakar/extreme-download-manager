@@ -4,5 +4,8 @@ let package = Package(
     name: "ExtremeDownloadManager",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "ExtremeDownloadManager", targets: ["ExtremeDownloadManager"])],
-    targets: [.executableTarget(name: "ExtremeDownloadManager")]
+    targets: [
+        .systemLibrary(name: "CSQLite"),
+        .executableTarget(name: "ExtremeDownloadManager", dependencies: ["CSQLite"])
+    ]
 )

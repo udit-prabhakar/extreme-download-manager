@@ -14,6 +14,8 @@ If a future distribution bundles aria2 or other tools, its release process must 
 
 The macOS implementation uses system SwiftUI, AppKit, Foundation, CryptoKit, and other Apple system facilities through the installed SDK. Their use and distribution remain subject to Apple's applicable terms.
 
+The application also links the macOS system SQLite library through a small C module declaration. No separate SQLite binary or implementation source is bundled by this project.
+
 ## FDM reference material
 
 Free Download Manager was inspected locally as a behavioral reference. Its recovered code, UI resources, artwork, and binaries are not included in the application source, repository, or release artifact.

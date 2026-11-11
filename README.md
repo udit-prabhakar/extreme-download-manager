@@ -11,8 +11,12 @@ A native macOS download manager built with SwiftUI and an isolated aria2 transfe
 - Pause/resume, restart recovery, speed limits, and completed history.
 - Search and status filters, live activity graph, connection details, and Finder actions.
 - Native URL/torrent dialogs, drag and drop, and configurable download destinations.
+- Global/per-torrent upload limits, uploaded totals, and configurable seeding rules.
+- Torrent file selection, peer/tracker details, verified-piece map, and media-piece prioritization.
+- Per-download connection/bandwidth settings, named queue filters, bulk actions, and scheduled starts while the app is open.
+- Resource-validator-based link repair, SHA-256 checks, stable download IDs, and transactional SQLite history with legacy migration.
 
-This is an early working application. Protocol support comes from aria2; local HTTP transfers and torrent metadata parsing have been tested. Public-swarm behavior and every supported network protocol have not been independently verified. Advanced features listed in the roadmap are proposals, not shipped capabilities.
+This is an early working application. Protocol support comes from aria2; local HTTP transfers and controlled local torrent uploads have been tested. Public-swarm behavior and every supported network protocol have not been independently verified. The roadmap distinguishes this implementation from remaining proposals.
 
 ## Build and run
 
@@ -34,7 +38,7 @@ cd macos
 bash scripts/test.sh
 ```
 
-Tests start a loopback fixture server, transfer 24 MiB, check concurrency, pause/restart/resume, verify SHA-256, exercise removal and HTTP failure handling, and import torrent metadata. DHT is disabled during tests. Generated evidence stays in the ignored `.build/` directory.
+Tests start a loopback fixture server, transfer 24 MiB, check concurrency, pause/restart/resume, verify SHA-256, exercise removal and HTTP failure handling, and import torrent metadata. They also exercise history migration, profile locking, scheduled transfers, link repair, file selection, upload caps against a real local peer, and seeding-policy changes. Public peer discovery is disabled during tests. Generated evidence stays in the ignored `.build/` directory.
 
 An additional isolated protocol experiment is available with `python3 Tests/torrent_hello_experiment.py`. It verifies that a real receiving client rejects a corrupted torrent piece; it does not contact public peers or change the application engine.
 
