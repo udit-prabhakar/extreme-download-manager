@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Extreme Download Manager</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><span aria-hidden="true">↓</span><div><h1>Send to Extreme</h1><p>Review the link in your Mac app.</p></div></header>
+  <form id="send-form">
+    <label for="url">Download link</label><textarea id="url" rows="3" placeholder="https://…" spellcheck="false" required></textarea>
+    <button id="send" type="submit">Send link to app</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <details><summary>Excluded sites</summary>
+    <label for="excluded">Host names, separated by commas</label><textarea id="excluded" rows="2" placeholder="example.com, work.example" spellcheck="false"></textarea>
+    <p class="hint">Includes subdomains. Blocks links on these pages and links pointing to these hosts.</p><button id="save" type="button">Save exclusions</button>
+  </details>
+  <footer>Only links you send are handed off. Cookies and credentials are not read. Register the bridge in the app’s Browser setup first.</footer>
+  <script src="core.js"></script><script src="popup.js"></script>
+</body></html>

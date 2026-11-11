@@ -31,6 +31,7 @@ Requires macOS 13 or newer and a local `aria2c` executable. aria2 is already ins
 - Per-download limits, queue labels/filters, multiple selection, move-to-front, and scheduled starts while the app stays open.
 - Compatible expired-link repair, expected SHA-256 and completed-file verification, and light/dark/system appearance.
 - Transactional SQLite history, retained legacy JSON backup, stable identities across retries, and single-profile engine locking.
+- Explicit browser link handoff for Chrome/Edge/Firefox, with a review inbox, destination choice, and excluded sites. See [browser setup](../docs/BROWSER_INTEGRATION.md).
 
 Press **⌘N** to add a download, **⌘O** to import a torrent, and **⌘,** for preferences. Command-click rows to select several downloads, or use the toolbar selection menu. Resume/Pause acts on selected items, or all applicable items when nothing is selected. Removing an item keeps its files. Right-click for **Download controls** or **Repair link**.
 
@@ -69,6 +70,7 @@ bash scripts/build.sh debug
 | `HistoryDatabase.swift` | Off-main-actor transactional SQLite history and one-time legacy migration. |
 | `TransferControlsView.swift` | Per-download, torrent file/peer, scheduling, repair, and integrity controls. |
 | `TransferUtilities.swift` | Resource validator probing, background checksums, and recovery explanations. |
+| `BrowserBridge.swift`, `BrowserRegistration.swift`, `BrowserInboxView.swift` | Native messaging, per-user browser registration, and review/setup screens. |
 | `App.swift` | App lifecycle, menu commands, and document handling. |
 | `EngineSelfTest.swift` | Explicit CLI-only transfer integration test. |
 
@@ -100,12 +102,12 @@ Build and run the local integration suite:
 bash scripts/test.sh
 ```
 
-It tests real HTTP transfer/recovery, checksums, queue behavior, error handling, history migration/reopening, profile locking, link repair, scheduled starts, torrent file selection, a capped upload to a real local peer, and changing a seeding policy. It verifies nonzero resume offsets and that completed files are not requeued. Public peer discovery is disabled, and no public swarm is used. Evidence stays under `.build/integration-*`.
+Tests require Node.js 20+ in addition to Swift, Python, and aria2. They cover browser exclusion/URL logic, real native-host framing, isolated Chrome/Edge/Firefox registrations, review-before-download, request deduplication, and dismissal. The transfer suite tests real HTTP transfer/recovery, checksums, queue behavior, error handling, history migration/reopening, profile locking, link repair, scheduled starts, torrent file selection, a capped upload to a real local peer, and changing a seeding policy. It verifies nonzero resume offsets and that completed files are not requeued. Public peer discovery is disabled, and no public swarm is used. Evidence stays under `.build/integration-*` and `.build/browser-host-*`.
 
 A download was also added through the actual native dialog, saved to a project test folder, verified by SHA-256, and confirmed in persisted completed history after quitting the app.
 
 ## Current boundaries
 
-This is a working FDM-style download manager, not full feature parity with FDM. Browser interception/extensions, site-specific video extraction, media conversion, background scheduling while closed, custom authentication/header dialogs, torrent creation, remote control, and advanced per-file priorities are not implemented. Ordinary downloadable media URLs work. Protocols beyond local HTTP and controlled torrent exchanges have not been integration-tested here; public magnet discovery and public-swarm performance remain unverified. aria2 is still a separate dependency and the app is not notarized.
+This is a working FDM-style download manager, not full feature parity with FDM. Automatic browser interception, authenticated browser request handoff, Safari integration, store-published extensions, site-specific video extraction, media conversion, background scheduling while closed, custom authentication/header dialogs, torrent creation, remote control, and advanced per-file priorities are not implemented. Browser extensions currently require development loading; Firefox temporary installs expire on restart. Ordinary downloadable media URLs work. Protocols beyond local HTTP and controlled torrent exchanges have not been integration-tested here; public magnet discovery and public-swarm performance remain unverified. aria2 is still a separate dependency and the app is not notarized.
 
 The pre-existing reverse-engineering notes under `analysis/fdm` are reference artifacts and are not part of the application build. aria2 is a separate GPL-licensed program; see its project for its license and source.

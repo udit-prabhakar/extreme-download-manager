@@ -43,6 +43,8 @@ struct ExtremeDownloadManagerApp: App {
                     Button("Preferences…") { store.showingSettings = true }.keyboardShortcut(",")
                 }
                 CommandMenu("Downloads") {
+                    Button("Browser links…") { store.showingBrowserInbox = true }
+                    Divider()
                     Button("Pause all") { Task { await store.pauseAll() } }.disabled(!store.ready)
                     Button("Resume all") { Task { await store.resumeAll() } }.disabled(!store.ready)
                     Divider()

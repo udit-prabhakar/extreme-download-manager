@@ -31,7 +31,11 @@ jobs:
           if ! command -v aria2c >/dev/null 2>&1; then
             brew install aria2
           fi
+          if ! command -v node >/dev/null 2>&1; then
+            brew install node
+          fi
           aria2c --version
+          node --version
           swift --version
           python3 --version
       - name: Check repository hygiene
