@@ -114,6 +114,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    if len(sys.argv) > 1: Path(sys.argv[1]).write_text(str(server.server_port))
+    if len(sys.argv) > 1:
+        port_file = Path(sys.argv[1])
+        temporary = port_file.with_suffix('.tmp')
+        temporary.write_text(str(server.server_port))
+        temporary.replace(port_file)
     print(f'Fixture server: http://127.0.0.1:{server.server_port}', flush=True)
     server.serve_forever()

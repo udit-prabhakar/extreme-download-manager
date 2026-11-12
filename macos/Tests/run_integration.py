@@ -12,10 +12,13 @@ run = Path(tempfile.mkdtemp(prefix='integration-', dir=root / '.build'))
 port_file = run / 'port'
 server = subprocess.Popen([sys.executable, str(root / 'Tests/fixture_server.py'), str(port_file)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 try:
-    for _ in range(100):
-        if port_file.exists(): break
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        if port_file.exists() and port_file.read_text().isdigit(): break
         if server.poll() is not None: raise RuntimeError(server.stderr.read().decode())
         time.sleep(.05)
+    else:
+        raise RuntimeError('Local HTTP fixture did not publish a ready port within 60 seconds')
     port = int(port_file.read_text())
     base = f'http://127.0.0.1:{port}'
     env = {**os.environ, 'EDM_DATA_DIR': str(run / 'app-data'), 'EDM_OFFLINE_TEST': '1'}
