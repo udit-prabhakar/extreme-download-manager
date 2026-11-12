@@ -24,12 +24,13 @@ try:
     (run / 'swift-test.log').write_text(result.stdout + result.stderr)
     if result.returncode: sys.exit(result.returncode)
     requests = json.load(urllib.request.urlopen(base + '/requests'))
+    (run / 'http-requests.json').write_text(json.dumps(requests, indent=2))
+    assert [item['phase'] for item in requests if item['path'] == '/checkpoint'] == [1, 2], 'Fixture checkpoints were cached or not reached; resume evidence is ambiguous'
     ranges = [item for item in requests if item['path'] == '/payload.bin' and item['range']]
     assert len(ranges) >= 2, f'Expected multiple range requests, got {ranges}'
     assert any(item['start'] > 0 for item in ranges), 'No nonzero range requested'
     resumed = [item for item in ranges if item['phase'] == 1]
     assert resumed and all(item['start'] > 0 for item in resumed), 'Resumed transfer restarted at byte zero'
-    (run / 'http-requests.json').write_text(json.dumps(requests, indent=2))
     print(f'PASS: server recorded {len(ranges)} Range requests, including nonzero offsets')
     print('PASS: after restart, all payload requests resume at nonzero byte offsets')
     print(f'Evidence: {run}')

@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import shutil
 import socket
 import struct
@@ -112,7 +113,7 @@ def transfer(label, content):
     torrent_path = folder / 'local.torrent'
     torrent_path.write_bytes(bencode(torrent))
     logfile = folder / 'aria2.log'
-    executable = shutil.which('aria2c')
+    executable = os.environ.get('EDM_ARIA2_PATH') or shutil.which('aria2c')
     assert executable, 'aria2c is required'
     command = [executable, '--no-conf', '--enable-dht=false', '--enable-dht6=false',
                '--enable-peer-exchange=false', '--bt-enable-lpd=false', '--no-netrc=true',

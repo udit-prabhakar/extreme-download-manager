@@ -1,0 +1,59 @@
+--- a/src/bittorrent_helper.cc
++++ b/src/bittorrent_helper.cc
+@@ -462,7 +462,7 @@
+                        error_code::BITTORRENT_PARSE_ERROR);
+   }
+ 
+-  if (pieceLengthData->i() < 0) {
++  if (pieceLengthData->i() <= 0) {
+     throw DL_ABORT_EX2(
+         fmt(MSG_NEGATIVE_LENGTH_BT_INFO, C_PIECE_LENGTH, pieceLengthData->i()),
+         error_code::BITTORRENT_PARSE_ERROR);
+--- a/src/IOFile.cc
++++ b/src/IOFile.cc
+@@ -87,7 +87,7 @@
+   while (gets(buf.data(), buf.size())) {
+     size_t len = strlen(buf.data());
+     bool lineBreak = false;
+-    if (buf[len - 1] == '\n') {
++    if (len > 0 && buf[len - 1] == '\n') {
+       --len;
+       lineBreak = true;
+     }
+--- a/src/LibsslTLSSession.cc
++++ b/src/LibsslTLSSession.cc
+@@ -247,6 +247,10 @@
+     long verifyResult = SSL_get_verify_result(ssl_);
+     if (verifyResult != X509_V_OK) {
+       handshakeErr = X509_verify_cert_error_string(verifyResult);
++      return TLS_ERR_ERROR;
++    }
++    if (X509_check_purpose(peerCert, X509_PURPOSE_SSL_SERVER, 0) != 1) {
++      handshakeErr = "certificate is not valid for TLS server authentication";
+       return TLS_ERR_ERROR;
+     }
+     std::string commonName;
+--- a/src/LibsslTLSContext.cc
++++ b/src/LibsslTLSContext.cc
+@@ -40,6 +40,7 @@
+ #include <openssl/err.h>
+ #include <openssl/pkcs12.h>
+ #include <openssl/bio.h>
++#include <openssl/x509v3.h>
+ 
+ #include "LogFactory.h"
+ #include "Logger.h"
+@@ -108,6 +109,13 @@
+     good_ = false;
+     A2_LOG_ERROR(fmt("SSL_CTX_new() failed. Cause: %s",
+                      ERR_error_string(ERR_get_error(), nullptr)));
++    return;
++  }
++
++  if (side_ == TLS_CLIENT &&
++      SSL_CTX_set_purpose(sslCtx_, X509_PURPOSE_SSL_SERVER) != 1) {
++    good_ = false;
++    A2_LOG_ERROR("Could not enable TLS server certificate purpose checking");
+     return;
+   }
+ 

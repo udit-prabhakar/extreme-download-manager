@@ -1,6 +1,21 @@
 # Validation
 
-Verified locally on the development Mac on 2026-11-11.
+Local checks below were run on the development Mac; GitHub CI results are separate.
+
+## Release-hardening candidate (1.3.0)
+
+Verified locally on Apple Silicon on 2026-11-12:
+
+- Optimized release app built with the checksum-pinned, security-patched bundled engine. App, native browser launcher, and engine passed deep strict ad-hoc signature checks with hardened runtime, matching arm64 architecture, system-only dynamic linkage, and a macOS 13 deployment target.
+- Relocated-bundle checks passed with only system tools in PATH: native-host framed ping, bundled engine execution, and release rejection of debug self-tests. Binary tampering was refused even with Python optimization enabled. Evidence: `.build/package-smoke-xftg17on/`.
+- Generated local HTTPS fixtures verified correct bytes with an explicitly trusted CA and rejection of untrusted, wrong-hostname, and client-only-purpose certificates. Malformed zero-piece torrent and NUL text input fixtures did not crash the engine.
+- The complete transfer suite passed: five extension tests, real native-host tests, baseline transfers and browser handoff, capped 512 KiB local upload (62,459 B/s under a 64K cap), storage/schema/backup checks, SFTP pin enforcement without network access, malformed-torrent RPC survival, quarantine metadata with unchanged file bytes, owned-engine SIGKILL recovery, bounded failed retries, retained profile ownership, manual retry, and runtime-secret cleanup. HTTP evidence contains 34 ranges and confirms all resumed ranges start above zero. Evidence: `.build/integration-ocw1gkgj/` and `.build/browser-host-w9_nz4y8/`.
+- The test fixture now disables HTTP caching so both phase checkpoints reach the server; request evidence is retained before assertions. The resume-offset requirement remains unchanged.
+- The bundled-engine torrent integrity experiment accepted original bytes and rejected a modified piece with a bad-piece-hash error. Evidence: `.build/torrent-hello-whe4fch1/`.
+- A development distribution was assembled with matching engine source archives, applied patches, exact build recipe, licenses, component inventory, and SHA-256 checksums. Public-release verification refused ad-hoc signing; the public release script refused missing Apple credentials before submission.
+- Native UI checks used `.build/release-ui-profile/`: corrupt history was refused, the Engine & storage sheet showed the bundled engine, confirmed backup restoration recovered `backup-record` while preserving the damaged original bytes, and manual retry returned to connected. Quitting removed the runtime engine configuration. No normal user profile was used.
+
+This is a development candidate, not a notarized public release or an independent security audit. Developer ID signing/notarization, clean-machine Gatekeeper acceptance, macOS 13 hardware testing, actual installed-browser testing/store distribution, and live FTP/SFTP/public-swarm behavior remain external or unverified gates described in [RELEASING.md](../docs/RELEASING.md).
 
 ## Browser handoff milestone
 

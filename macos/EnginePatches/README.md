@@ -1,0 +1,9 @@
+# Engine security backports
+
+Source archives and patches are pinned by SHA-256 in `EngineSources.lock.json`. The builder applies them with zero fuzz after extracting fresh verified sources. The distribution includes the original archives, patches, notices, and exact build script.
+
+`aria2-security.patch` is a small local backport/mitigation for the issues documented in [the zero-piece-length report](https://github.com/aria2/aria2/issues/2371), [the empty-line bounds fix](https://github.com/aria2/aria2/pull/2376), and [the certificate-purpose report](https://github.com/aria2/aria2/issues/2355). It rejects zero piece lengths, guards an empty text buffer before indexing its last byte, and uses OpenSSL's server-certificate purpose checks for TLS client connections. It retains aria2's GPL-2.0-or-later licensing and OpenSSL exception; this patch does not relicense upstream code under the application's MIT license.
+
+The libssh2 patch set comes from the immutable Homebrew revision recorded in the lock file, including upstream patches and maintained backports for the listed advisories. The reviewed changes are consolidated against the exact 1.11.1 tarball so production builds apply them without fuzzy context matching. The original patch URLs and checksums remain in `backport_sources` for comparison. Their upstream BSD licensing applies. Applied advisory identifiers also appear in the generated component inventory. Version-only vulnerability scans may still flag the base version; assess the included patches rather than suppressing findings globally.
+
+These are targeted fixes, not a claim of a complete security audit or absence of other vulnerabilities. Review upstream advisories before every public release. The packaged-engine regression suite checks certificate trust, hostname and purpose, malformed metadata handling, binary tampering, and normal transfer behavior.

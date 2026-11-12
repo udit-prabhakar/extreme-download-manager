@@ -12,6 +12,12 @@ These are initial implementations, not closure of every priority row below. Full
 
 Added development Chrome/Edge/Firefox extensions with a context-menu link action and popup, site exclusions, allowlisted native messaging, per-user bridge registration/removal, a persistent review inbox, and destination choice before adding a transfer. The extension does not read cookies or intercept browser downloads. Automatic capture, authenticated request context, Safari support, browser store publication, and permanent Firefox installation remain open. See [browser setup and privacy](../docs/BROWSER_INTEGRATION.md).
 
+## Release-hardening candidate
+
+Implemented in the 1.3 development candidate: bundled source-built engine and reviewed security backports; static non-system dependencies; native signed browser launcher; hardened runtime; relocation/signature/linkage/minimum-version checks; bounded engine recovery; consistent backups and preserved-original restore; source-complete distribution packaging; SPDX inventory; and a signing/notarization release path with refusal gates. CI covers separate Apple Silicon and Intel builds.
+
+Public release remains blocked on Developer ID credentials/notarization, clean-machine Gatekeeper acceptance, oldest-supported-OS validation, and the external/browser coverage described in `docs/RELEASING.md`. This does not close the feature-parity roadmap.
+
 ## Product direction
 
 Build a dependable native macOS download manager with convenient browser capture, recoverable transfers, transparent torrent controls, and a simple default interface. Offer advanced controls in inspectors and preferences. Evaluate success through completed, correct downloads and low user effort; parallel connections cannot exceed server, disk, or network limits.

@@ -83,7 +83,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/fixture.torrent': data = TORRENT
         elif self.path == '/multi.torrent': data = MULTI
         elif self.path == '/requests': data = json.dumps(REQUESTS).encode()
-        elif self.path in ['/payload.bin', '/renewed.bin']: data = PAYLOAD
+        elif self.path in ['/payload.bin', '/renewed.bin', '/queued.bin']: data = PAYLOAD
         elif self.path == '/changed.bin': data = PAYLOAD + b'x'
         else:
             self.send_response(404); self.send_header('Content-Length', '0'); self.end_headers(); return
@@ -97,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
         REQUESTS.append({'path': self.path, 'range': requested, 'start': start, 'end': end, 'phase': PHASE})
         self.send_response(206 if requested else 200)
         self.send_header('Content-Length', str(end - start + 1)); self.send_header('Accept-Ranges', 'bytes')
+        # Control endpoints such as /checkpoint must reach the server on every call.
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Type', 'application/octet-stream')
         self.send_header('ETag', '"edm-changed-v2"' if self.path == '/changed.bin' else '"edm-fixture-v1"')
         self.send_header('Last-Modified', 'Wed, 11 Nov 2026 00:00:00 GMT')

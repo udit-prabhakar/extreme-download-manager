@@ -31,6 +31,6 @@ The first source baseline is pushed to `main` before its protection settings are
 
 ## CI
 
-The CI workflow builds and tests on macOS, runs the isolated torrent integrity experiment, creates a release app archive, and uploads it as a workflow artifact. It uses read-only repository permissions and pins third-party actions to specific commits. Dependabot proposes action updates through PRs.
+The CI workflow builds and tests on Apple Silicon and Intel macOS runners, runs the isolated torrent integrity experiment and relocated-bundle HTTPS checks, and uploads source-complete development archives. The protected `macOS build and integration tests` check requires both architectures to pass. These artifacts are not notarized public releases. The workflow uses read-only repository permissions and pins third-party actions to specific commits. Dependabot proposes action updates through PRs.
 
 Workflow artifacts are development builds. A public versioned release requires a deliberate release decision, version/changelog updates, and documented signing/distribution status. Do not represent an ad-hoc signed artifact as notarized.

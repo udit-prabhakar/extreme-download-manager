@@ -57,6 +57,8 @@ struct DownloadItem: Codable, Identifiable, Equatable {
     var verification: String? = nil
     var browserRequestID: UUID? = nil
     var browserRequestIDs: [UUID]? = nil
+    var quarantineApplied: Bool? = nil
+    var quarantineError: String? = nil
     var gid: String { engineID ?? id }
     var configuration: DownloadConfiguration {
         get { configurationValue ?? DownloadConfiguration() }
@@ -188,6 +190,14 @@ struct DownloadConfiguration: Codable, Equatable {
     var scheduledAt: Date? = nil
     var sha256 = ""
     var identity: ResourceIdentity? = nil
+    var sshHostKeySHA1: String? = nil
+    var normalizedSSHHostKey: String { (sshHostKeySHA1 ?? "").replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    func validateSource(_ source: String) throws {
+        try validate()
+        if URL(string: source)?.scheme?.lowercased() == "sftp", normalizedSSHHostKey.isEmpty {
+            throw EngineError(message: "SFTP requires the server’s trusted SSH host-key SHA-1 fingerprint. Enter its 40 hexadecimal characters in Advanced options or Download controls; obtain it from the server administrator through a trusted channel.")
+        }
+    }
     static func defaults(_ preferences: AppPreferences) -> DownloadConfiguration {
         var result = DownloadConfiguration()
         result.connections = preferences.connections
@@ -203,6 +213,7 @@ struct DownloadConfiguration: Codable, Equatable {
         guard (1...16).contains(connections), seedRatio.isFinite, (0.1...1000).contains(seedRatio), (1...525600).contains(seedMinutes) else { throw EngineError(message: "Check the connection count and seeding limits.") }
         guard sha256.isEmpty || sha256.range(of: "^[a-fA-F0-9]{64}$", options: .regularExpression) != nil else { throw EngineError(message: "A SHA-256 checksum must contain exactly 64 hexadecimal characters.") }
         if let files = selectedFiles, files.isEmpty || files.contains(where: { $0 < 1 }) { throw EngineError(message: "Select at least one torrent file.") }
+        guard normalizedSSHHostKey.isEmpty || normalizedSSHHostKey.range(of: "^[a-f0-9]{40}$", options: .regularExpression) != nil else { throw EngineError(message: "The SSH host-key SHA-1 fingerprint must contain 40 hexadecimal characters, with optional colon separators.") }
     }
     var engineOptions: [String: String] {
         var result = ["max-download-limit": downloadLimit, "max-upload-limit": uploadLimit,
@@ -218,6 +229,7 @@ struct DownloadConfiguration: Codable, Equatable {
         result["bt-prioritize-piece"] = sequential ? "head=8M,tail=2M" : ""
         if !sha256.isEmpty { result["checksum"] = "sha-256=" + sha256.lowercased() }
         if scheduledAt != nil { result["pause"] = "true" }
+        if !normalizedSSHHostKey.isEmpty { result["ssh-host-key-md"] = "sha-1=" + normalizedSSHHostKey }
         return result
     }
 }

@@ -12,6 +12,13 @@ final class DownloadStore: ObservableObject {
     @Published var selection: String?
     @Published var ready = false
     @Published var engineMessage = "Starting download engine…"
+    @Published var showingHealth = false
+    @Published var recoveringEngine = false
+    @Published var lastEngineError = ""
+    private var failedPolls = 0
+    private var recoveryAttempts = 0
+    private var nextRecovery = Date.distantPast
+    private var lastRecovery = Date.distantPast
     @Published var errorMessage: String?
     @Published var showingAdd = false
     @Published var showingSettings = false
@@ -37,6 +44,7 @@ final class DownloadStore: ObservableObject {
     private var newTorrentIDs: Set<String> = []
     private var database: HistoryDatabase?
     private var persistenceTask: Task<Void, Never>?
+    private var quarantineTask: Task<Void, Never>?
     private var schedulerRunning = false
     private var lastSave = Date.distantPast
     private var pendingTorrents: [URL] = []
@@ -69,17 +77,21 @@ final class DownloadStore: ObservableObject {
     var finishedCount: Int { items.filter { $0.status == "complete" }.count }
     var downloadedBytes: Int64 { items.reduce(0) { $0 + $1.completed } }
     var peakSpeed: Int64 { Int64(speedHistory.max() ?? 0) }
+    var canRestoreHistory: Bool { !ready && !started && !recoveringEngine && FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent("history-backup.sqlite").path) }
 
     func start() async {
-        guard !started else { return }
+        guard !started, !stopping else { return }
         started = true
         do {
             // Acquire profile ownership before reading or migrating shared history.
             try await engine.start(preferences: preferences)
+            try Task.checkCancellation()
+            guard !stopping else { throw CancellationError() }
             let directory = dataDirectory
             let database = try await Task.detached { try HistoryDatabase(directory: directory) }.value
             self.database = database
             items = try await database.load()
+            guard !stopping else { throw CancellationError() }
             for index in items.indices where ["active", "waiting"].contains(items[index].status) {
                 items[index].status = "paused"; items[index].speed = 0
             }
@@ -92,7 +104,7 @@ final class DownloadStore: ObservableObject {
                 }
             }
             _ = try? await engine.call("saveSession")
-            ready = true; engineMessage = "Engine connected"
+            ready = true; engineMessage = "Engine connected"; lastEngineError = ""
             let launchTorrents = pendingTorrents
             pendingTorrents.removeAll()
             for url in launchTorrents { await addTorrent(url) }
@@ -106,20 +118,24 @@ final class DownloadStore: ObservableObject {
                     await self.runScheduled()
                 }
             }
-        } catch { await engine.shutdown(); database = nil; started = false; engineMessage = "Engine unavailable"; errorMessage = error.localizedDescription }
+        } catch { await engine.shutdown(); database = nil; started = false; ready = false; engineMessage = "Engine unavailable"; lastEngineError = error.localizedDescription; if !stopping { errorMessage = error.localizedDescription } }
     }
 
     func refresh() async {
-        guard !refreshing, !stopping else { return }
+        guard !refreshing, !stopping, !recoveringEngine else { return }
         refreshing = true
         defer { refreshing = false }
         do {
             let snapshot = try await engine.snapshot()
             guard !stopping else { return }
             var map = Dictionary(uniqueKeysWithValues: items.map { ($0.gid, $0) })
+            var completedForQuarantine: [DownloadItem] = []
             for raw in snapshot {
                 guard let gid = raw["gid"] as? String,
                       let item = DownloadItem.fromRPC(raw, previous: map[gid]) else { continue }
+                if item.status == "complete", item.followedBy.isEmpty, map[gid]?.status != "complete" {
+                    completedForQuarantine.append(item)
+                }
                 map[gid] = item
             }
             // Magnet metadata jobs become new content jobs with different IDs.
@@ -139,14 +155,64 @@ final class DownloadStore: ObservableObject {
             }
             let metadataIDs = Set(map.values.filter { !$0.followedBy.isEmpty }.map(\.gid))
             items = map.values.filter { !metadataIDs.contains($0.gid) }.sorted { $0.added > $1.added }
+            quarantineCompleted(completedForQuarantine)
             totalSpeed = items.reduce(0) { $0 + ($1.status == "active" ? $1.speed : 0) }
             uploadSpeed = items.reduce(0) { $0 + ($1.status == "active" ? $1.uploadSpeed : 0) }
             speedHistory.append(Double(totalSpeed)); if speedHistory.count > 60 { speedHistory.removeFirst() }
             ready = true; engineMessage = "Engine connected"
+            failedPolls = 0
+            if Date().timeIntervalSince(lastRecovery) > 60 { recoveryAttempts = 0 }
             if Date().timeIntervalSince(lastSave) > 3 { persist(); lastSave = Date() }
         } catch {
-            if !stopping { ready = false; engineMessage = "Connection interrupted" }
+            if !stopping {
+                ready = false; failedPolls += 1; engineMessage = "Connection interrupted"; lastEngineError = error.localizedDescription
+                if (!engine.running || failedPolls >= 3) && Date() >= nextRecovery && recoveryAttempts < 3 { await recoverEngine() }
+                if recoveryAttempts >= 3 && !ready { engineMessage = "Recovery stopped — open Engine & storage" }
+            }
         }
+    }
+
+    func recoverEngine(manual: Bool = false) async {
+        guard !stopping, !recoveringEngine else { return }
+        if !started { await start(); return }
+        if manual { recoveryAttempts = 0 }
+        guard recoveryAttempts < 3 else { return }
+        recoveringEngine = true; ready = false
+        defer { recoveringEngine = false }
+        recoveryAttempts += 1; lastRecovery = Date()
+        engineMessage = "Recovering engine (\(recoveryAttempts)/3)…"
+        let resume = items.filter { ["active", "waiting"].contains($0.status) && ($0.configuration.scheduledAt == nil || $0.configuration.scheduledAt! <= Date()) }
+        persist(); await flushPersistence()
+        do {
+            try await engine.restart(preferences: preferences)
+            guard !stopping else { await engine.shutdown(); return }
+            for item in items where item.status == "complete" {
+                if let raw = try? await engine.call("tellStatus", [item.gid]) as? [String: Any], ["paused", "active", "waiting"].contains(raw["status"] as? String ?? "") {
+                    _ = try? await engine.call("forceRemove", [item.gid]); _ = try? await engine.call("removeDownloadResult", [item.gid])
+                }
+            }
+            ready = true; failedPolls = 0; lastEngineError = ""; engineMessage = "Engine recovered"
+            for item in resume { await perform("resume", item: item) }
+            persist()
+        } catch {
+            ready = false; lastEngineError = error.localizedDescription
+            nextRecovery = Date().addingTimeInterval(pow(2, Double(recoveryAttempts)))
+            engineMessage = recoveryAttempts >= 3 ? "Recovery stopped — open Engine & storage" : "Engine retry pending…"
+        }
+    }
+
+    func restoreHistoryBackup() async {
+        guard !ready, !started, !recoveringEngine else { errorMessage = "Stop or recover the running engine before restoring history."; return }
+        recoveringEngine = true
+        do {
+            try engine.acquireProfile()
+            let directory = dataDirectory
+            let preserved = try await Task.detached { try HistoryDatabase.restoreBackup(directory: directory) }.value
+            await engine.shutdown()
+            recoveringEngine = false
+            lastEngineError = "Previous history preserved at \(preserved.path)"
+            await start()
+        } catch { await engine.shutdown(); recoveringEngine = false; errorMessage = error.localizedDescription; lastEngineError = error.localizedDescription }
     }
 
     func addURLs(_ text: String, directory: String, filename: String, configuration: DownloadConfiguration? = nil) async -> Bool {
@@ -170,6 +236,7 @@ final class DownloadStore: ObservableObject {
             baseConfiguration.queue = baseConfiguration.queue.trimmingCharacters(in: .whitespacesAndNewlines)
             if baseConfiguration.queue.isEmpty { baseConfiguration.queue = "Default" }
             try baseConfiguration.validate()
+            for source in sources { try baseConfiguration.validateSource(source) }
             if !preferences.extra.queueNames.contains(baseConfiguration.queue) { preferences.extra.queueNames.append(baseConfiguration.queue) }
             for source in sources {
                 if let duplicate = items.first(where: { $0.source == source && $0.directory == directory && !["complete", "error", "removed"].contains($0.status) }) {
@@ -228,12 +295,18 @@ final class DownloadStore: ObservableObject {
 
     func perform(_ operation: String, item: DownloadItem) async {
         do {
+            if operation == "resume" { try item.configuration.validateSource(item.source) }
             var target = item
             if operation == "resume", let index = items.firstIndex(where: { $0.id == item.id }) {
                 items[index].configuration.scheduledAt = nil
                 target = items[index]
             }
-            if operation == "resume" && (["error", "removed"].contains(item.status) || item.configurationValue == nil) {
+            var missingSSHPin = false
+            if operation == "resume", URL(string: target.source)?.scheme?.lowercased() == "sftp" {
+                let options = try? await engine.call("getOption", [target.gid]) as? [String: String]
+                missingSSHPin = options?["ssh-host-key-md"] != "sha-1=" + target.configuration.normalizedSSHHostKey
+            }
+            if operation == "resume" && (["error", "removed"].contains(item.status) || item.configurationValue == nil || missingSSHPin) {
                 try await retry(target)
             } else {
                 let method = operation == "pause" ? "forcePause" : "unpause"
@@ -311,8 +384,33 @@ final class DownloadStore: ObservableObject {
     }
 
     func reveal(_ item: DownloadItem) { NSWorkspace.shared.activateFileViewerSelecting([item.fileURL]) }
+    private func quarantineCompleted(_ completed: [DownloadItem]) {
+        guard !completed.isEmpty else { return }
+        let previous = quarantineTask
+        quarantineTask = Task { [weak self] in
+            await previous?.value
+            for item in completed {
+                let paths = item.files.isEmpty ? [item.fileURL.path] : item.files, directory = item.directory
+                var failure: String?
+                do { try await Task.detached { try DownloadedFileSecurity.quarantine(paths: paths, directory: directory) }.value }
+                catch { failure = error.localizedDescription }
+                guard let self, let index = self.items.firstIndex(where: { $0.id == item.id && $0.gid == item.gid && $0.status == "complete" }) else { continue }
+                self.items[index].quarantineApplied = failure == nil
+                self.items[index].quarantineError = failure
+                self.persist()
+            }
+        }
+    }
     func open(_ item: DownloadItem) {
-        if item.status == "complete" { NSWorkspace.shared.open(item.fileURL) } else { reveal(item) }
+        guard item.status == "complete" else { reveal(item); return }
+        Task {
+            do {
+                let paths = item.files.isEmpty ? [item.fileURL.path] : item.files, directory = item.directory
+                try await Task.detached { try DownloadedFileSecurity.quarantine(paths: paths, directory: directory) }.value
+                if let index = items.firstIndex(where: { $0.id == item.id }) { items[index].quarantineApplied = true; items[index].quarantineError = nil; persist() }
+                NSWorkspace.shared.open(item.fileURL)
+            } catch { errorMessage = "Could not apply macOS download security metadata. Use Show in Finder to review the file.\n\n" + error.localizedDescription }
+        }
     }
     func chooseFolder(current: String) -> String? {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
@@ -359,7 +457,9 @@ final class DownloadStore: ObservableObject {
 
     func shutdown() async {
         stopping = true; pollTask?.cancel(); browserTask?.cancel()
+        while recoveringEngine { try? await Task.sleep(nanoseconds: 50_000_000) }
         await engine.shutdown()
+        await quarantineTask?.value
         for i in items.indices where ["active", "waiting"].contains(items[i].status) { items[i].status = "paused"; items[i].speed = 0 }
         persist(); await flushPersistence()
     }
@@ -457,7 +557,7 @@ extension DownloadStore {
     func saveControls(_ configuration: DownloadConfiguration, id: String, start: Bool = false) async -> Bool {
         guard let item = items.first(where: { $0.id == id }) else { return false }
         do {
-            try configuration.validate()
+            try configuration.validateSource(item.source)
             if let selected = configuration.selectedFiles {
                 let available = Set((item.fileDetails ?? []).map(\.id))
                 guard selected.allSatisfy(available.contains) else { throw EngineError(message: "The torrent file selection is no longer valid. Refresh its file list.") }
@@ -467,7 +567,7 @@ extension DownloadStore {
             if item.status == "complete" && !item.isTorrent && configuration.scheduledAt != nil { throw EngineError(message: "This file is already complete. Add a new download to schedule another transfer.") }
             if item.status == "complete" && !restartCompletedTorrent {
                 if let index = items.firstIndex(where: { $0.id == id }) { items[index].configuration = configuration }
-            } else if restartCompletedTorrent || ["error", "removed"].contains(item.status) || configuration.seedMode != item.configuration.seedMode || configuration.sha256 != item.configuration.sha256 {
+            } else if restartCompletedTorrent || ["error", "removed"].contains(item.status) || configuration.seedMode != item.configuration.seedMode || configuration.sha256 != item.configuration.sha256 || configuration.normalizedSSHHostKey != item.configuration.normalizedSSHHostKey {
                 try await retry(item, configuration: configuration, autoStart: shouldRun)
             } else {
                 if ["active", "waiting"].contains(item.status) { _ = try await engine.call("forcePause", [item.gid]); try await waitForPause(item.gid) }

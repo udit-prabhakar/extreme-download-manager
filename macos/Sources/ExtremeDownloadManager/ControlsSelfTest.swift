@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 @MainActor
@@ -177,3 +178,5 @@ enum ControlsSelfTest {
         } catch { await store.shutdown(); throw error }
     }
 }
+
+#endif

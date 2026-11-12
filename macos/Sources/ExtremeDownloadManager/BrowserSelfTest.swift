@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 @MainActor
@@ -71,3 +72,5 @@ enum BrowserSelfTest {
         print("PASS: browser links require review, respect paused defaults, deduplicate retries, dismiss without transfer, and download correct bytes")
     }
 }
+
+#endif

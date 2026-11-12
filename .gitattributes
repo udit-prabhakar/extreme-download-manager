@@ -8,3 +8,5 @@
 *.plist text eol=lf
 *.png binary
 *.icns binary
+# Preserve checksum-pinned unified-diff context, including blank context lines.
+macos/EnginePatches/*.patch -whitespace

@@ -93,6 +93,14 @@ struct TransferControlsView: View {
                     Text("Scheduling runs while Extreme Download Manager is open. Scheduled downloads remain paused until their start time.").font(.caption).foregroundStyle(.secondary)
                 }.padding(8)
             }
+            if URL(string: item.source)?.scheme?.lowercased() == "sftp" {
+                GroupBox("SSH server identity") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        TextField("Trusted SHA-1 fingerprint (40 hex characters)", text: Binding(get: { draft.sshHostKeySHA1 ?? "" }, set: { draft.sshHostKeySHA1 = $0 })).textFieldStyle(.roundedBorder).font(.caption.monospaced())
+                        Text("Obtain the host-key fingerprint from the server administrator through a trusted channel. A mismatch stops the transfer.").font(.caption).foregroundStyle(.secondary)
+                    }.padding(8)
+                }
+            }
         }
     }
 

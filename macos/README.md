@@ -12,7 +12,7 @@ The built application is at **`build/Extreme Download Manager.app`**. Double-cli
 open "build/Extreme Download Manager.app"
 ```
 
-Requires macOS 13 or newer and a local `aria2c` executable. aria2 is already installed on the development Mac. The app checks its resources, `/opt/homebrew/bin/aria2c`, and `/usr/local/bin/aria2c`. On another Mac, install the engine using `brew install aria2`, or supply its absolute path through `EDM_ARIA2_PATH`.
+Targets macOS 13 or newer. Release builds include a source-built `aria2c`; end users do not need Homebrew. Release apps use the bundled engine and refuse startup if it is missing. Debug builds can use `EDM_ARIA2_PATH`, `/opt/homebrew/bin/aria2c`, or `/usr/local/bin/aria2c` for development.
 
 ## Features
 
@@ -39,19 +39,27 @@ Preferences set the global upload cap and seeding defaults for new transfers. **
 
 Torrent imports open a file-selection sheet before transfer starts. Select at least one file and choose **Download selected files**. Shared boundary pieces can contain bytes from neighboring skipped files. Media prioritization requests beginning/end pieces; it does not guarantee playback or supply a built-in player.
 
+SFTP requires a trusted SSH host-key SHA-1 fingerprint in Advanced options or Download controls. Supply 40 hexadecimal characters (optional colon separators) obtained independently from the server administrator. Unpinned SFTP starts/resumes are refused. This does not add a credentials manager or replace server-specific testing.
+
 For scheduling, open Advanced options when adding a link, or use Download controls. **The app must remain open** for the scheduled start. Named queues organize/filter transfers; they do not have separate concurrency or time-window policies yet.
 
 Repairing a link while preserving data requires matching resource size and strong ETag or Last-Modified validators. Conflicting validators are refused. When the source cannot establish compatibility, choose **Start a separate file** to retain the old partial data. Expected checksums add an independent content-integrity check.
 
+Completed files are marked for macOS quarantine handling. The app checks this metadata before opening files and preserves any existing marker. Private download URLs are not added to file attributes.
+
+Open **Downloads → Engine & storage** (or click the connection indicator) for retry and recovery controls. The app attempts up to three engine recoveries and retains the profile lock. Previously active jobs resume while paused jobs remain paused. Manual retry is available after correcting a startup problem. Engine logs rotate at startup when larger than 1 MiB. Newer history schemas and corrupt databases are refused without automatic replacement.
+
+A standalone `history-backup.sqlite` is refreshed at most hourly during history saves. Restore can lose newer history entries and preserves original database/WAL files under `Preserved history/`; downloaded and partial files remain untouched. Backups contain private source URLs and stay local.
+
 ## Build from source
 
-Uses Apple's command-line tools, Swift, Python 3, and macOS frameworks. No Swift package downloads are needed.
+Uses Apple's command-line tools, Swift, Python 3.12+, pkg-config, and macOS frameworks. No Swift package downloads are needed. Release builds compile checksum-pinned aria2, OpenSSL, and libssh2 sources with reviewed security backports. The engine build is serialized by a file lock and cached after verification. Initial compilation takes several minutes; nothing is installed globally.
 
 ```sh
 bash scripts/build.sh
 ```
 
-This creates an optimized, locally ad-hoc signed `.app` bundle for the build machine's architecture. It is not a notarized public distribution. aria2 remains a separately installed dependency rather than a copied Homebrew executable with unresolved dynamic libraries.
+This creates an optimized, locally ad-hoc signed `.app` bundle with hardened runtime for the build machine's architecture. The native browser launcher and engine are signed before the outer bundle. All non-system engine dependencies are statically linked. This development build is not a notarized public distribution; [release tooling](../docs/RELEASING.md) refuses to package it as one.
 
 For a development build:
 
@@ -71,6 +79,8 @@ bash scripts/build.sh debug
 | `TransferControlsView.swift` | Per-download, torrent file/peer, scheduling, repair, and integrity controls. |
 | `TransferUtilities.swift` | Resource validator probing, background checksums, and recovery explanations. |
 | `BrowserBridge.swift`, `BrowserRegistration.swift`, `BrowserInboxView.swift` | Native messaging, per-user browser registration, and review/setup screens. |
+| `HealthView.swift` | Engine capabilities, connection recovery, disk space, and history restore. |
+| `DownloadedFileSecurity.swift` | macOS quarantine metadata for completed files and checks before opening. |
 | `App.swift` | App lifecycle, menu commands, and document handling. |
 | `EngineSelfTest.swift` | Explicit CLI-only transfer integration test. |
 
@@ -108,6 +118,6 @@ A download was also added through the actual native dialog, saved to a project t
 
 ## Current boundaries
 
-This is a working FDM-style download manager, not full feature parity with FDM. Automatic browser interception, authenticated browser request handoff, Safari integration, store-published extensions, site-specific video extraction, media conversion, background scheduling while closed, custom authentication/header dialogs, torrent creation, remote control, and advanced per-file priorities are not implemented. Browser extensions currently require development loading; Firefox temporary installs expire on restart. Ordinary downloadable media URLs work. Protocols beyond local HTTP and controlled torrent exchanges have not been integration-tested here; public magnet discovery and public-swarm performance remain unverified. aria2 is still a separate dependency and the app is not notarized.
+This is a working FDM-style download manager, not full feature parity with FDM. Automatic browser interception, authenticated browser request handoff, Safari integration, store-published extensions, site-specific video extraction, media conversion, background scheduling while closed, custom authentication/header dialogs, torrent creation, remote control, and advanced per-file priorities are not implemented. Browser extensions currently require development loading; Firefox temporary installs expire on restart. Ordinary downloadable media URLs work. Local HTTP/HTTPS and controlled torrent exchanges have integration coverage; live FTP/SFTP, public magnet discovery, and public-swarm performance remain unverified. The minimum target is macOS 13, but an oldest-supported-OS hardware smoke test remains a release acceptance task. Developer ID signing/notarization and browser store distribution are not completed.
 
-The pre-existing reverse-engineering notes under `analysis/fdm` are reference artifacts and are not part of the application build. aria2 is a separate GPL-licensed program; see its project for its license and source.
+The pre-existing reverse-engineering notes under `analysis/fdm` are reference artifacts and are not part of the application build. aria2 is a separate GPL-licensed program; distributions include its sources, build recipe, patches, and notices alongside the app.
