@@ -6,7 +6,7 @@ import Darwin
 final class TransferEngine {
     private var process: Process?
     private var endpoint: URL?
-    private let secret = UUID().uuidString + UUID().uuidString
+    private var secret = UUID().uuidString + UUID().uuidString
     let dataDirectory: URL
     private var logHandle: FileHandle?
     private var configURL: URL?
@@ -17,6 +17,10 @@ final class TransferEngine {
     private var lastStoppedRefresh = Date.distantPast
     var running: Bool { process?.isRunning == true }
     private(set) var peerPort = 0
+    private(set) var executablePath = ""
+    private(set) var version = ""
+    private(set) var features: Set<String> = []
+    var processID: Int32? { running ? process?.processIdentifier : nil }
 
     init(dataDirectory: URL) {
         self.dataDirectory = dataDirectory
@@ -49,21 +53,40 @@ final class TransferEngine {
 
     func start(preferences: AppPreferences) async throws {
         if running { return }
+        try acquireProfile()
+        do { try await startProcess(preferences: preferences) }
+        catch { await shutdown(); throw error }
+    }
+
+    func acquireProfile() throws {
+        guard lockDescriptor < 0 else { return }
         try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         lockDescriptor = Darwin.open(dataDirectory.appendingPathComponent("engine.lock").path, O_CREAT | O_RDWR, 0o600)
         guard lockDescriptor >= 0, flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
             releaseLock()
             throw EngineError(message: "Another Extreme Download Manager instance is using this profile. Close it before opening this one.")
         }
+    }
+
+    func restart(preferences: AppPreferences) async throws {
+        try acquireProfile()
+        await stopProcess(releaseProfile: false)
         do { try await startProcess(preferences: preferences) }
-        catch { await shutdown(); releaseLock(); throw error }
+        catch { await stopProcess(releaseProfile: false); throw error }
     }
 
     private func startProcess(preferences: AppPreferences) async throws {
+        secret = UUID().uuidString + UUID().uuidString
+        invalidate(); stoppedCache = []
+        #if DEBUG
         let candidates = [ProcessInfo.processInfo.environment["EDM_ARIA2_PATH"], Bundle.main.url(forResource: "aria2c", withExtension: nil)?.path, "/opt/homebrew/bin/aria2c", "/usr/local/bin/aria2c"].compactMap { $0 }
+        #else
+        let candidates = [Bundle.main.url(forResource: "aria2c", withExtension: nil)?.path].compactMap { $0 }
+        #endif
         guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw EngineError(message: "The download engine is missing. Install aria2 with ‘brew install aria2’, then restart Extreme Download Manager.")
+            throw EngineError(message: "The download engine is missing. Reinstall the complete app. Development builds can use aria2 installed through Homebrew.")
         }
+        executablePath = executable
         try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let sessionFile = dataDirectory.appendingPathComponent("transfers.session")
         if !FileManager.default.fileExists(atPath: sessionFile.path) { FileManager.default.createFile(atPath: sessionFile.path, contents: Data(), attributes: [.posixPermissions: 0o600]) }
@@ -82,6 +105,7 @@ final class TransferEngine {
         input-file=\(sessionFile.path)
         save-session=\(sessionFile.path)
         save-session-interval=5
+        auto-save-interval=5
         force-save=false
         save-not-found=false
         stop-with-process=\(ProcessInfo.processInfo.processIdentifier)
@@ -117,8 +141,14 @@ final class TransferEngine {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.path)
         configURL = config
         let log = dataDirectory.appendingPathComponent("engine.log")
-        FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: log.path), ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 1024 * 1024 {
+            let previous = dataDirectory.appendingPathComponent("engine-previous.log")
+            if FileManager.default.fileExists(atPath: previous.path) { try FileManager.default.removeItem(at: previous) }
+            try FileManager.default.moveItem(at: log, to: previous)
+        }
+        if !FileManager.default.fileExists(atPath: log.path) { FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600]) }
         logHandle = try FileHandle(forWritingTo: log)
+        try logHandle?.seekToEnd()
         let child = Process()
         child.executableURL = URL(fileURLWithPath: executable)
         child.arguments = ["--conf-path=\(config.path)"]
@@ -133,7 +163,12 @@ final class TransferEngine {
             guard child.isRunning else {
                 throw EngineError(message: "The download engine could not start. See \(log.path) for details.")
             }
-            do { _ = try await call("getVersion"); return }
+            do {
+                let info = try await call("getVersion") as? [String: Any] ?? [:]
+                version = info["version"] as? String ?? "Unknown"
+                features = Set(info["enabledFeatures"] as? [String] ?? [])
+                return
+            }
             catch { try await Task.sleep(nanoseconds: 100_000_000) }
         }
         child.terminate()
@@ -180,7 +215,7 @@ final class TransferEngine {
     func add(source: String, directory: String, filename: String?, preferences: AppPreferences, torrent: String? = nil, configuration: DownloadConfiguration? = nil) async throws -> String {
         var options = ["dir": directory, "split": String(preferences.connections), "max-connection-per-server": String(preferences.connections), "pause": preferences.autoStart ? "false" : "true"]
         let configuration = configuration ?? .defaults(preferences)
-        try configuration.validate()
+        try configuration.validateSource(source)
         options.merge(configuration.engineOptions) { _, new in new }
         if let filename, !filename.isEmpty { options["out"] = filename }
         let result: Any
@@ -198,35 +233,41 @@ final class TransferEngine {
         if lockDescriptor >= 0 { flock(lockDescriptor, LOCK_UN); close(lockDescriptor); lockDescriptor = -1 }
     }
 
-    func shutdown() async {
-        guard running else { releaseLock(); return }
-        _ = try? await call("forcePauseAll")
-        // Pause is asynchronous in aria2; wait for file/control-state finalization.
-        for _ in 0..<60 {
-            if let entries = try? await snapshot(), !entries.contains(where: { ["active", "waiting"].contains($0["status"] as? String ?? "") }) { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        _ = try? await call("saveSession")
-        _ = try? await call("shutdown")
-        for _ in 0..<100 {
-            if !running { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        if running { process?.terminate() }
-        for _ in 0..<100 {
-            if !running { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        if let process, process.isRunning {
-            // Only this owned child, after graceful shutdown and SIGTERM deadlines.
-            kill(process.processIdentifier, SIGKILL)
-            for _ in 0..<40 {
-                if !process.isRunning { break }
+    func shutdown() async { await stopProcess(releaseProfile: true) }
+
+    private func stopProcess(releaseProfile: Bool) async {
+        if running {
+            _ = try? await call("forcePauseAll")
+            // Pause is asynchronous in aria2; wait for file/control-state finalization.
+            for _ in 0..<60 {
+                if let entries = try? await snapshot(), !entries.contains(where: { ["active", "waiting"].contains($0["status"] as? String ?? "") }) { break }
                 try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            _ = try? await call("saveSession")
+            _ = try? await call("shutdown")
+            for _ in 0..<100 {
+                if !running { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            if running { process?.terminate() }
+            for _ in 0..<100 {
+                if !running { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            if let process, process.isRunning {
+                // Only this owned child, after graceful shutdown and SIGTERM deadlines.
+                kill(process.processIdentifier, SIGKILL)
+                for _ in 0..<40 {
+                    if !process.isRunning { break }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
             }
         }
         try? logHandle?.close()
+        logHandle = nil
         if let configURL { try? FileManager.default.removeItem(at: configURL) }
-        releaseLock()
+        configURL = nil; endpoint = nil; process = nil
+        invalidate(); stoppedCache = []
+        if releaseProfile { releaseLock() }
     }
 }

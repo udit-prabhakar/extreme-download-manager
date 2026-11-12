@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Apply and preserve macOS quarantine metadata for downloaded files and check it before opening, without copying private URLs into attributes.
+- Require trusted SSH host-key fingerprints for SFTP starts/resumes, with usable controls and policy regression tests.
+- Bundle a source-built engine with static non-system dependencies, macOS 13 deployment target, verified source/patch checksums, and reviewed security backports.
+- Add bounded engine crash recovery, manual retry, startup log rotation, consistent history backups, corrupt/newer-schema refusal, and restore that preserves original files.
+- Replace the shell browser launcher with signed native code and omit integration self-tests from release executables.
+- Add hardened signing, bundle verification, corresponding-source distributions, SPDX inventory, checksums, and a public-release path that requires Apple notarization.
+- Add relocated-bundle, TLS trust/hostname/purpose, malformed-input, tamper, crash-recovery, and storage-failure regression coverage; prepare Apple Silicon and Intel CI gates.
 - Add explicit Chrome/Edge/Firefox link handoff extensions, site exclusions, native-host registration/removal, and a local review inbox with destination choice and replay protection.
 - Add browser message framing/allowlist, extension logic, registration, and reviewed-transfer integration tests.
 - Add global/per-torrent upload limits, uploaded byte totals, share ratio, and configurable seeding policies.

@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 @MainActor
@@ -15,6 +16,16 @@ enum ControlsSelfTest {
                 try await Task.sleep(nanoseconds: 150_000_000)
             }
             throw EngineError(message: "Timed out checking application transfer \(id). \(store.errorMessage ?? "")")
+        }
+        func discover(_ store: DownloadStore, gid: String) async throws -> DownloadItem {
+            // A poll already in flight can predate a direct engine.add call.
+            let deadline = Date().addingTimeInterval(35)
+            while Date() < deadline {
+                await store.refresh()
+                if let item = store.items.first(where: { $0.gid == gid }) { return item }
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
+            throw EngineError(message: "Engine job \(gid) did not appear in the application. \(store.lastEngineError)")
         }
         // Exercise migration once, then prove an intentionally empty history stays empty.
         let migration = directory.appendingPathComponent("migration")
@@ -100,8 +111,7 @@ enum ControlsSelfTest {
             let (multi, _) = try await URLSession.shared.data(from: URL(string: base + "/multi.torrent")!)
             var pausedPreferences = store.preferences; pausedPreferences.autoStart = false
             let multiID = try await store.engine.add(source: "multi.torrent", directory: store.preferences.directory, filename: nil, preferences: pausedPreferences, torrent: multi.base64EncodedString())
-            await store.refresh()
-            guard let multiItem = store.items.first(where: { $0.gid == multiID }) else { throw EngineError(message: "Torrent was not exposed to the app") }
+            let multiItem = try await discover(store, gid: multiID)
             await store.inspect(multiItem.id)
             var chosen = multiItem.configuration; chosen.selectedFiles = [1]; chosen.uploadLimit = "32K"; chosen.seedMode = .stop
             let saved = await store.saveControls(chosen, id: multiItem.id)
@@ -126,8 +136,7 @@ enum ControlsSelfTest {
             let torrent = try await URLSession.shared.data(from: URL(string: base + "/fixture.torrent")!).0
             var sharing = DownloadConfiguration.defaults(store.preferences); sharing.seedMode = .ratio; sharing.seedRatio = 2; sharing.uploadLimit = "64K"
             let seedGID = try await store.engine.add(source: "fixture.torrent", directory: store.preferences.directory, filename: nil, preferences: store.preferences, torrent: torrent.base64EncodedString(), configuration: sharing)
-            await store.refresh()
-            guard let seed = store.items.first(where: { $0.gid == seedGID }) else { throw EngineError(message: "Seeding job not found") }
+            let seed = try await discover(store, gid: seedGID)
             if let index = store.items.firstIndex(where: { $0.id == seed.id }) {
                 store.items[index].configuration = sharing
                 store.items[index].torrentData = torrent.base64EncodedString()
@@ -177,3 +186,5 @@ enum ControlsSelfTest {
         } catch { await store.shutdown(); throw error }
     }
 }
+
+#endif

@@ -83,7 +83,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/fixture.torrent': data = TORRENT
         elif self.path == '/multi.torrent': data = MULTI
         elif self.path == '/requests': data = json.dumps(REQUESTS).encode()
-        elif self.path in ['/payload.bin', '/renewed.bin']: data = PAYLOAD
+        elif self.path in ['/payload.bin', '/renewed.bin', '/queued.bin']: data = PAYLOAD
         elif self.path == '/changed.bin': data = PAYLOAD + b'x'
         else:
             self.send_response(404); self.send_header('Content-Length', '0'); self.end_headers(); return
@@ -97,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
         REQUESTS.append({'path': self.path, 'range': requested, 'start': start, 'end': end, 'phase': PHASE})
         self.send_response(206 if requested else 200)
         self.send_header('Content-Length', str(end - start + 1)); self.send_header('Accept-Ranges', 'bytes')
+        # Control endpoints such as /checkpoint must reach the server on every call.
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Type', 'application/octet-stream')
         self.send_header('ETag', '"edm-changed-v2"' if self.path == '/changed.bin' else '"edm-fixture-v1"')
         self.send_header('Last-Modified', 'Wed, 11 Nov 2026 00:00:00 GMT')
@@ -112,6 +114,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    if len(sys.argv) > 1: Path(sys.argv[1]).write_text(str(server.server_port))
+    if len(sys.argv) > 1:
+        port_file = Path(sys.argv[1])
+        temporary = port_file.with_suffix('.tmp')
+        temporary.write_text(str(server.server_port))
+        temporary.replace(port_file)
     print(f'Fixture server: http://127.0.0.1:{server.server_port}', flush=True)
     server.serve_forever()

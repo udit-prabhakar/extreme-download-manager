@@ -35,7 +35,8 @@ struct MainView: View {
         .sheet(isPresented: $store.showingSettings) { PreferencesView(store: store) }
         .sheet(item: $store.editingTransfer) { TransferControlsView(store: store, initial: $0) }
         .sheet(isPresented: $store.showingBrowserInbox) { BrowserInboxView(store: store) }
-        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil && !store.showingAdd && !store.showingSettings && !store.showingBrowserInbox && store.editingTransfer == nil }, set: { if !$0 { store.errorMessage = nil } })) {
+        .sheet(isPresented: $store.showingHealth) { HealthView(store: store) }
+        .alert("Extreme Download Manager", isPresented: Binding(get: { store.errorMessage != nil && !store.showingAdd && !store.showingSettings && !store.showingBrowserInbox && !store.showingHealth && store.editingTransfer == nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
         .onDrop(of: [UTType.url.identifier, UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: $isDropTarget, perform: receiveDrop)
@@ -58,10 +59,10 @@ struct MainView: View {
                 Label(store.browserCaptures.isEmpty ? "Browser links" : "Browser links (\(store.browserCaptures.count))", systemImage: "globe")
                     .font(.system(size: 11))
             }.help("Review browser links and set up browser integration")
-            HStack(spacing: 6) {
+            Button { store.showingHealth = true } label: { HStack(spacing: 6) {
                 Circle().fill(store.ready ? accent : Color.orange).frame(width: 6, height: 6)
                 Text(store.ready ? "Ready when you are" : store.engineMessage).font(.system(size: 11)).foregroundStyle(.secondary)
-            }
+            } }.buttonStyle(.plain).help("Engine & storage")
             Button { store.showingSettings = true } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 16)).frame(width: 34, height: 34) }
                 .buttonStyle(.plain).help("Preferences")
         }.padding(.horizontal, 24).padding(.vertical, 16).background(surface)
@@ -336,6 +337,7 @@ struct ActivityPanel: View {
                     detail("Save to", item.directory)
                     if item.isTorrent { detail("Uploaded", "\(bytes(item.uploadedBytes ?? 0))  ·  Ratio \(String(format: "%.2f", item.shareRatio))") }
                     detail("Queue", item.configuration.queue)
+                    if let warning = item.quarantineError { Text(warning).font(.caption).foregroundStyle(.orange) }
                     detail("Transfer", "\(bytes(item.completed)) of \(item.total > 0 ? bytes(item.total) : "unknown size")  ·  \(item.connections) connections")
                     if !item.error.isEmpty { Text(item.error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2).textSelection(.enabled) }
                 }.frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
@@ -418,6 +420,10 @@ struct AddDownloadView: View {
                     HStack { Text("Queue").font(.caption); TextField("Default", text: $configuration.queue).textFieldStyle(.roundedBorder) }
                     HStack { Text("Download limit").font(.caption); TextField("0 = unlimited; e.g. 1M", text: $configuration.downloadLimit).textFieldStyle(.roundedBorder) }
                     TextField("Expected SHA-256 (HTTP/FTP, optional)", text: $configuration.sha256).textFieldStyle(.roundedBorder).font(.caption.monospaced())
+                    if urls.lowercased().contains("sftp:") {
+                        TextField("Trusted SSH host-key SHA-1 fingerprint (40 hex characters)", text: Binding(get: { configuration.sshHostKeySHA1 ?? "" }, set: { configuration.sshHostKeySHA1 = $0 })).textFieldStyle(.roundedBorder).font(.caption.monospaced())
+                        Text("Get this fingerprint from the server administrator through a trusted channel.").font(.caption2).foregroundStyle(.secondary)
+                    }
                     Toggle("Schedule for later", isOn: $scheduleEnabled)
                     if scheduleEnabled {
                         DatePicker("Start", selection: $scheduledDate, in: Date()...).datePickerStyle(.field)

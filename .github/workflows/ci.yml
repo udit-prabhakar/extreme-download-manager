@@ -14,10 +14,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: macOS build and integration tests
-    runs-on: macos-15
-    timeout-minutes: 25
+  platform:
+    name: macOS ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
@@ -26,15 +30,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install the transfer engine
+      - name: Install build and test tools
         run: |
-          if ! command -v aria2c >/dev/null 2>&1; then
-            brew install aria2
-          fi
           if ! command -v node >/dev/null 2>&1; then
             brew install node
           fi
-          aria2c --version
+          if ! command -v pkg-config >/dev/null 2>&1; then
+            brew install pkgconf
+          fi
+          if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
+            brew install python
+            edm_python_bin="$(brew --prefix python)/libexec/bin"
+            echo "$edm_python_bin" >> "$GITHUB_PATH"
+            export PATH="$edm_python_bin:$PATH"
+          fi
           node --version
           swift --version
           python3 --version
@@ -42,22 +51,37 @@ jobs:
         run: |
           git diff --check
           python3 scripts/check_repository.py
-      - name: Run local transfer integration tests
-        run: bash macos/scripts/test.sh
-      - name: Check torrent integrity behavior
-        working-directory: macos
-        run: python3 Tests/torrent_hello_experiment.py
       - name: Build release app
         run: bash macos/scripts/build.sh release
+      - name: Test relocated bundle and HTTPS verification
+        run: python3 macos/Tests/test_packaged_app.py
+      - name: Run transfer suite with bundled engine
+        env:
+          EDM_ARIA2_PATH: ${{ github.workspace }}/macos/build/Extreme Download Manager.app/Contents/Resources/aria2c
+        run: bash macos/scripts/test.sh
+      - name: Check torrent integrity behavior with bundled engine
+        working-directory: macos
+        env:
+          EDM_ARIA2_PATH: ${{ github.workspace }}/macos/build/Extreme Download Manager.app/Contents/Resources/aria2c
+        run: python3 Tests/torrent_hello_experiment.py
       - name: Verify and archive app
         run: |
-          codesign --verify --deep --strict --verbose=2 "macos/build/Extreme Download Manager.app"
-          plutil -lint "macos/build/Extreme Download Manager.app/Contents/Info.plist"
-          ditto -c -k --keepParent "macos/build/Extreme Download Manager.app" "macos/build/Extreme-Download-Manager-macos.zip"
+          python3 macos/scripts/verify_bundle.py "macos/build/Extreme Download Manager.app" --development
+          python3 macos/scripts/package_distribution.py "macos/build/Extreme Download Manager.app" --development
       - name: Upload development build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: Extreme-Download-Manager-macos-${{ github.sha }}
-          path: macos/build/Extreme-Download-Manager-macos.zip
+          name: Extreme-Download-Manager-${{ matrix.runner }}-${{ github.sha }}
+          path: macos/build/distributions/*
           if-no-files-found: error
           retention-days: 14
+  build-and-test:
+    name: macOS build and integration tests
+    runs-on: ubuntu-latest
+    needs: platform
+    if: ${{ always() }}
+    steps:
+      - name: Require both architectures to pass
+        env:
+          PLATFORM_RESULT: ${{ needs.platform.result }}
+        run: test "$PLATFORM_RESULT" = success

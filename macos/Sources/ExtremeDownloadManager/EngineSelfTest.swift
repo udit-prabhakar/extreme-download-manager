@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import CryptoKit
 
@@ -33,12 +34,13 @@ enum EngineSelfTest {
             throw EngineError(message: "Timed out waiting for \(gid)")
         }
         do {
+            if arguments.contains("--storage-only") { try await HardeningSelfTest.storage(base: base, directory: directory); exit(0) }
             try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
             try await engine.start(preferences: settings)
             let version = try await engine.call("getVersion")
             print("PASS: isolated download engine starts: \(version)")
             let first = try await engine.add(source: base + "/payload.bin", directory: downloads.path, filename: "first.bin", preferences: settings)
-            let second = try await engine.add(source: base + "/payload.bin", directory: downloads.path, filename: "queued.bin", preferences: settings)
+            let second = try await engine.add(source: base + "/queued.bin", directory: downloads.path, filename: "queued.bin", preferences: settings)
             let progress = try await waitFor(engine, first) { (Int64($0["completedLength"] as? String ?? "0") ?? 0) > 4_000_000 }
             try require(progress["status"] as? String == "active", "First transfer is not active")
             let queued = try await status(engine, second)
@@ -98,6 +100,7 @@ enum EngineSelfTest {
             await engine.shutdown()
             _ = try await URLSession.shared.data(from: URL(string: base + "/checkpoint")!)
             try await ControlsSelfTest.run(base: base, directory: directory)
+            try await HardeningSelfTest.run(base: base, directory: directory)
             print("ALL ENGINE INTEGRATION CHECKS PASSED")
             exit(0)
         } catch {
@@ -107,3 +110,5 @@ enum EngineSelfTest {
         }
     }
 }
+
+#endif
